@@ -4313,6 +4313,13 @@ function createSnippetsClient(require) {
       document.body)
   }
 
+  const CLIPBOARD_ICON = h('svg', {
+    width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true,
+    style: { display: 'block' },
+  },
+  h('path', { d: 'M5.5 3h-1.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1.5', stroke: 'currentColor', 'stroke-width': '1.2', 'stroke-linecap': 'round' }),
+  h('rect', { x: '5.75', y: '1.75', width: '4.5', height: '2.5', rx: '0.75', stroke: 'currentColor', 'stroke-width': '1.2' }))
+
   /** dock 入口按钮：composer.dock 标准槽位（与费用 pill 同区）。 */
   function SnippetsButton(props) {
     const [open, setOpen] = React.useState(false)
@@ -4339,8 +4346,9 @@ function createSnippetsClient(require) {
         type: 'button',
         className: 'dsh-cs-btn',
         title: '片段管理器（自动捕获窗口内复制）',
+        'aria-label': '片段管理器',
         onClick: (event) => { event.stopPropagation(); setOpen((value) => !value) },
-      }, '片段'),
+      }, CLIPBOARD_ICON),
       open ? h(SnippetsPanel, { anchor: buttonRef.current, onClose: React.useCallback(() => setOpen(false), []) }) : null)
   }
 
@@ -4367,8 +4375,10 @@ function createSnippetsClient(require) {
     }
   }
 
-  /** 草稿桥：面板插入用。draft 读取走 useInput，写入走 inputActions.setDraft；
-   * 两者都从 dock 槽位标准 props 拿，挂到 window 供面板闭包使用。 */
+  /** 草稿桥：面板插入用。挂 conversation.input.dock——该槽位确认注入
+   * useInput / inputActions（followup 同款验证过）；composer.dock 不注入
+   * 这些 props，在那边调用会 render 阶段抛错并连带整个槽位树崩掉
+   * （0.1.0 实测根因：片段按钮随之消失且无 effect 日志）。 */
   function SnippetsDraftBridge({ useInput, inputActions }) {
     const draft = useInput((state) => state.draft)
     React.useEffect(() => {
@@ -4390,10 +4400,11 @@ function createSnippetsClient(require) {
         id: 'dsh-composer-snippets-btn',
         order: 3,
       }, SnippetsButton))
-      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
-        name: 'conversation.composer.dock',
+      // 草稿桥挂 input.dock（props 注入 see SnippetsDraftBridge 注释）。
+      ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+        name: 'conversation.input.dock',
         id: 'dsh-composer-snippets-bridge',
-        order: 4,
+        order: 95,
       }, SnippetsDraftBridge))
     },
   }
@@ -4411,10 +4422,21 @@ window.__ModuleLoader__.load({
       ['voice', createVoiceClient],
       ['snippets', createSnippetsClient],
     ]
+    // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
+    const reportModuleError = (key, when, error) => {
+      console.error(`[dsh-composer] client module "${key}" ${when}:`, error)
+      try {
+        void fetch('/api/dsh-composer/snippets/diag', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: `client module "${key}" ${when}: ${String(error?.stack ?? error).slice(0, 400)}` }),
+        }).catch(() => {})
+      } catch { /* ignore */ }
+    }
     const modules = []
     for (const [key, create] of defs) {
       try { modules.push([key, create(require)]) }
-      catch (error) { console.error(`[dsh-composer] client module "${key}" failed:`, error) }
+      catch (error) { reportModuleError(key, 'factory failed', error) }
     }
     console.info('[dsh-composer] client active:', modules.map(([key]) => key).join('+'))
     return {
@@ -4422,7 +4444,7 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         for (const [key, mod] of modules) {
           try { mod.apply(ctx) }
-          catch (error) { console.error(`[dsh-composer] client module "${key}" apply failed:`, error) }
+          catch (error) { reportModuleError(key, 'apply failed', error) }
         }
       },
     }

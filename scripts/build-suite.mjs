@@ -234,10 +234,21 @@ window.__ModuleLoader__.load({
       ['voice', createVoiceClient],
       ['snippets', createSnippetsClient],
     ]
+    // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
+    const reportModuleError = (key, when, error) => {
+      console.error(\`[dsh-composer] client module "\${key}" \${when}:\`, error)
+      try {
+        void fetch('/api/dsh-composer/snippets/diag', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: \`client module "\${key}" \${when}: \${String(error?.stack ?? error).slice(0, 400)}\` }),
+        }).catch(() => {})
+      } catch { /* ignore */ }
+    }
     const modules = []
     for (const [key, create] of defs) {
       try { modules.push([key, create(require)]) }
-      catch (error) { console.error(\`[dsh-composer] client module "\${key}" failed:\`, error) }
+      catch (error) { reportModuleError(key, 'factory failed', error) }
     }
     console.info('[dsh-composer] client active:', modules.map(([key]) => key).join('+'))
     return {
@@ -245,7 +256,7 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         for (const [key, mod] of modules) {
           try { mod.apply(ctx) }
-          catch (error) { console.error(\`[dsh-composer] client module "\${key}" apply failed:\`, error) }
+          catch (error) { reportModuleError(key, 'apply failed', error) }
         }
       },
     }
