@@ -1,0 +1,238 @@
+/* dsh-composer · snippets 模块客户端：copy 捕获 + dock 入口 + 片段面板。 */
+function createSnippetsClient(require) {
+  const React = require('react')
+  const { createPortal } = require('react-dom')
+  const h = React.createElement
+
+  const STYLE_ID = 'dsh-composer-snippets-style'
+  const ENDPOINT = '/api/dsh-composer/snippets'
+  const MAX_TEXT = 100_000
+
+  const CSS = `
+.dsh-cs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72)) !important;
+  font-size: 12px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 8px;
+  border-radius: var(--dsw-radius-sm, 6px);
+  cursor: default;
+  user-select: none;
+}
+.dsh-cs-btn:hover { background: var(--dsw-alias-interactive-bg-hover) !important; color: var(--dsw-alias-label-primary) !important; }
+.dsh-cs-panel {
+  position: fixed;
+  z-index: 1100;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.45));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  width: min(340px, 100vw - 24px);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.04), 0 0 20px 0 rgba(0, 0, 0, 0.05));
+  color: var(--dsw-alias-label-secondary);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dsh-cs-search {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  outline: none;
+}
+.dsh-cs-search::placeholder { color: var(--dsw-alias-label-tertiary); }
+.dsh-cs-list { max-height: 320px; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+.dsh-cs-row { display: flex; align-items: center; gap: 6px; min-height: 30px; border-radius: 6px; padding: 2px 6px; }
+.dsh-cs-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-cs-row + .dsh-cs-row { margin-top: 1px; }
+.dsh-cs-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary); cursor: default; }
+.dsh-cs-meta { flex: none; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.dsh-cs-act { flex: none; border: none; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; }
+.dsh-cs-act:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-cs-empty { padding: 12px 6px; text-align: center; color: var(--dsw-alias-label-tertiary); }
+.dsh-cs-pinned-title { padding: 2px 6px; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+`
+
+  function ensureStyle() {
+    if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return
+    const style = document.createElement('style')
+    style.id = STYLE_ID
+    style.textContent = CSS
+    document.head.appendChild(style)
+  }
+
+  async function api(path, body) {
+    const res = await fetch(`${ENDPOINT}/${path}`, body === undefined
+      ? { cache: 'no-store' }
+      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    if (!res.ok) return null
+    return res.json().catch(() => null)
+  }
+
+  /** 复制捕获：capture 阶段监听，选中非空文本去重上报（服务端再按指纹去重）。 */
+  function startCapture() {
+    let lastSent = ''
+    let lastSentAt = 0
+    let timer = 0
+    document.addEventListener('copy', () => {
+      // 读选区放 debounce 外取不到（copy 后选区仍在，但稳妥起见同步取）。
+      const text = String(window.getSelection?.() ?? '').slice(0, MAX_TEXT)
+      if (!text || text.trim().length < 2) return
+      if (text === lastSent && Date.now() - lastSentAt < 1500) return
+      lastSent = text
+      lastSentAt = Date.now()
+      if (timer) return
+      timer = setTimeout(() => {
+        timer = 0
+        void api('add', { text: lastSent, source: 'copy' }).catch(() => {})
+      }, 600)
+    }, true)
+  }
+
+  /** 片段面板：官方弹卡模板（半透明底 + 毛玻璃），向上展开，点外/Esc 关闭。 */
+  function SnippetsPanel({ anchor, onClose }) {
+    const [items, setItems] = React.useState(null)
+    const [query, setQuery] = React.useState('')
+    const inputRef = React.useRef(null)
+
+    const reload = React.useCallback(async () => {
+      const data = await api('list')
+      if (data && Array.isArray(data.items)) setItems(data.items)
+    }, [])
+    React.useEffect(() => { void reload() }, [reload])
+
+    React.useEffect(() => {
+      inputRef.current?.focus()
+      const onKey = (event) => { if (event.key === 'Escape') onClose() }
+      const onClick = (event) => {
+        if (!event.target.closest?.('.dsh-cs-panel') && !event.target.closest?.('.dsh-cs-btn')) onClose()
+      }
+      document.addEventListener('keydown', onKey)
+      document.addEventListener('mousedown', onClick, true)
+      return () => {
+        document.removeEventListener('keydown', onKey)
+        document.removeEventListener('mousedown', onClick, true)
+      }
+    }, [onClose])
+
+    // 面板出现在按钮上方（输入区贴窗口底，向上展开防裁剪）。
+    const [pos, setPos] = React.useState(null)
+    React.useEffect(() => {
+      if (!anchor) return
+      const rect = anchor.getBoundingClientRect()
+      const width = Math.min(340, window.innerWidth - 24)
+      setPos({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        top: Math.max(8, rect.top - 8),
+        transform: 'translateY(-100%)',
+      })
+    }, [anchor])
+
+    const remove = async (id) => { await api('remove', { id }); void reload() }
+    const pin = async (item) => { await api('pin', { id: item.id, pinned: !item.pinned }); void reload() }
+    const insert = async (item) => {
+      // 插入 = 追加到当前草稿尾部（无光标级插入 API；追加后由宿主聚焦编辑器）。
+      const current = String(window.__dshComposerDraft?.() ?? '')
+      const next = current ? `${current}\n${item.text}` : item.text
+      window.__dshComposerSetDraft?.(next)
+      onClose()
+    }
+
+    const q = query.trim().toLowerCase()
+    const all = items ?? []
+    const pinned = all.filter((item) => item.pinned && (!q || item.text.toLowerCase().includes(q)))
+    const recent = all.filter((item) => !item.pinned && (!q || item.text.toLowerCase().includes(q)))
+
+    return createPortal(h('div', { className: 'dsh-cs-panel', style: pos ?? { display: 'none' } },
+      h('input', {
+        ref: inputRef,
+        className: 'dsh-cs-search',
+        placeholder: '搜索片段…',
+        value: query,
+        onInput: (event) => setQuery(event.target.value),
+      }),
+      h('div', { className: 'dsh-cs-list' },
+        !items
+          ? h('div', { className: 'dsh-cs-empty' }, '加载中…')
+          : (pinned.length === 0 && recent.length === 0)
+            ? h('div', { className: 'dsh-cs-empty' }, q ? '没有匹配的片段' : '在输入区或正文里复制内容，就会出现在这里')
+            : [
+              pinned.length > 0 ? h('div', { className: 'dsh-cs-pinned-title', key: 'pt' }, '已收藏') : null,
+              ...pinned.map((item) => h('div', { className: 'dsh-cs-row', key: item.id },
+                h('span', { className: 'dsh-cs-text', title: item.text, onClick: () => { void insert(item) } }, item.text.split('\n')[0].slice(0, 120)),
+                h('button', { className: 'dsh-cs-act', title: '取消收藏', onClick: () => { void pin(item) } }, '★'),
+                h('button', { className: 'dsh-cs-act', title: '删除', onClick: () => { void remove(item.id) } }, '✕'))),
+              recent.length > 0 ? h('div', { className: 'dsh-cs-pinned-title', key: 'rt' }, pinned.length > 0 ? '最近' : '') : null,
+              ...recent.slice(0, 60).map((item) => h('div', { className: 'dsh-cs-row', key: item.id },
+                h('span', { className: 'dsh-cs-text', title: item.text, onClick: () => { void insert(item) } }, item.text.split('\n')[0].slice(0, 120)),
+                h('span', { className: 'dsh-cs-meta' }, new Date(item.at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })),
+                h('button', { className: 'dsh-cs-act', title: '收藏', onClick: () => { void pin(item) } }, '☆'),
+                h('button', { className: 'dsh-cs-act', title: '删除', onClick: () => { void remove(item.id) } }, '✕'))),
+            ])),
+      document.body)
+  }
+
+  /** dock 入口按钮：composer.dock 标准槽位（与费用 pill 同区）。 */
+  function SnippetsButton(props) {
+    const [open, setOpen] = React.useState(false)
+    const buttonRef = React.useRef(null)
+    return h('span', { className: 'dsh-cs-anchor' },
+      h('button', {
+        ref: buttonRef,
+        type: 'button',
+        className: 'dsh-cs-btn',
+        title: '片段管理器（自动捕获窗口内复制）',
+        onClick: (event) => { event.stopPropagation(); setOpen((value) => !value) },
+      }, '片段'),
+      open ? h(SnippetsPanel, { anchor: buttonRef.current, onClose: React.useCallback(() => setOpen(false), []) }) : null)
+  }
+
+  /** 草稿桥：面板插入用。draft 读取走 useInput，写入走 inputActions.setDraft；
+   * 两者都从 dock 槽位标准 props 拿，挂到 window 供面板闭包使用。 */
+  function SnippetsDraftBridge({ useInput, inputActions }) {
+    const draft = useInput((state) => state.draft)
+    React.useEffect(() => {
+      window.__dshComposerDraft = () => (typeof draft === 'string' ? draft : '')
+      window.__dshComposerSetDraft = (value) => {
+        try { inputActions?.setDraft?.(value) } catch { /* ignore */ }
+      }
+    }, [draft, inputActions])
+    return null
+  }
+
+  return {
+    inject: ['slots'],
+    apply(ctx) {
+      ensureStyle()
+      if (typeof document !== 'undefined') startCapture()
+      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+        name: 'conversation.composer.dock',
+        id: 'dsh-composer-snippets-btn',
+        order: 3,
+      }, SnippetsButton))
+      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+        name: 'conversation.composer.dock',
+        id: 'dsh-composer-snippets-bridge',
+        order: 4,
+      }, SnippetsDraftBridge))
+    },
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "name": "dsh-composer",
+  "version": "0.1.0",
+  "description": "Super composer suite for the DeepSeek Harness (dsh): model & effort picker, prompt enhancement, follow-up suggestions, full cost engine (billing, backfill, price sync), voice input and a snippet manager — one plugin, six input-area modules with per-module failure isolation.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "modules",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "composer",
+    "cost",
+    "picker",
+    "snippets",
+    "suite"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saul-dsh/dsh-composer.git"
+  },
+  "homepage": "https://github.com/saul-dsh/dsh-composer#readme",
+  "bugs": {
+    "url": "https://github.com/saul-dsh/dsh-composer/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}
