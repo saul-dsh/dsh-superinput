@@ -123,6 +123,8 @@ const server = `/* dsh-composer 服务端核心（由 scripts/build-suite.mjs �
  * 顶层静态 import 的失败发生在入口任何语句之前，静默且永远取不到证据。 */
 ${allImports.join('\n')}
 
+${iifes.join('\n\n')}
+
 const MODULES = [
   ['cost', costModule],
   ['picker', pickerModule],
