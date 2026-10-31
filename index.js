@@ -49,10 +49,23 @@ export const Config = Schema.object({
   snippets: snippets.Config,
 })
 
+/**
+ * 嵌套默认值兜底：宿主对插件 row config 的解析深度未知（旧插件顶层字段
+ * 靠 schema 默认能跑，嵌套后 config.cost 可能是 undefined）——套件层自己
+ * 跑一遍每个模块的 Config({}) 拿完整默认，与宿主传入的 slice 合并，
+ * 无论宿主行为如何模块都能拿到正确默认值。
+ */
+const DEFAULTS = new Map()
+for (const [key, mod] of MODULES) {
+  try { DEFAULTS.set(key, mod.Config ? mod.Config({}) : {}) } catch { DEFAULTS.set(key, {}) }
+}
+
 export function apply(ctx, config) {
+  const keys = Object.keys(config ?? {})
+  console.info(`[dsh-composer] server apply: host config keys=${keys.length ? keys.join(',') : '(none)'} — merging schema defaults`)
   for (const [key, mod] of MODULES) {
     try {
-      mod.apply(ctx, config?.[key] ?? {})
+      mod.apply(ctx, { ...(DEFAULTS.get(key) ?? {}), ...(config?.[key] ?? {}) })
     } catch (error) {
       console.error(`[dsh-composer] server module "${key}" failed:`, error)
     }
