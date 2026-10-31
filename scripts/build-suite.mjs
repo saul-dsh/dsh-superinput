@@ -118,22 +118,10 @@ if (!allImports.some((line) => line.includes('@deepseek-ai/schemastery'))) {
   allImports.unshift("import Schema from '@deepseek-ai/schemastery'")
 }
 
-const server = `/* dsh-composer 服务端：由 scripts/build-suite.mjs 生成（六模块 IIFE 内联，无相对导入）；勿手改。 */
+const server = `/* dsh-composer 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
+ * 入口拆分：index.js 是零依赖探针（先 trace 再动态 import 本文件并捕获失败）——
+ * 顶层静态 import 的失败发生在入口任何语句之前，静默且永远取不到证据。 */
 ${allImports.join('\n')}
-
-/** 决定性取证：顶层 LOAD（宿主是否 import 了本入口）/ APPLY（row 是否 apply）。 */
-const DIAG = join(homedir(), '.dsh', 'composer-debug.log')
-const trace = (line) => {
-  try {
-    mkdirSync(dirname(DIAG), { recursive: true })
-    appendFileSync(DIAG, \`\${new Date().toISOString()} \${line}\\n\`, 'utf8')
-  } catch { /* ignore */ }
-}
-trace(\`suite module LOAD pid=\${process.pid}\`)
-
-${iifes.join('\n\n')}
-
-export const name = 'composer'
 
 const MODULES = [
   ['cost', costModule],
@@ -143,6 +131,8 @@ const MODULES = [
   ['voice', voiceModule],
   ['snippets', snippetsModule],
 ]
+
+export const name = 'composer'
 
 export const inject = [...new Set(MODULES.flatMap(([, mod]) => mod.inject ?? []))]
 
@@ -166,22 +156,57 @@ for (const [key, mod] of MODULES) {
 
 export function apply(ctx, config) {
   const keys = Object.keys(config ?? {})
-  trace(\`suite APPLY pid=\${process.pid} hostConfigKeys=\${keys.length ? keys.join(',') : '(none)'}\`)
   console.info(\`[dsh-composer] server apply: host config keys=\${keys.length ? keys.join(',') : '(none)'} — merging schema defaults\`)
   for (const [key, mod] of MODULES) {
     try {
       mod.apply(ctx, { ...(DEFAULTS.get(key) ?? {}), ...(config?.[key] ?? {}) })
     } catch (error) {
       console.error(\`[dsh-composer] server module "\${key}" failed:\`, error)
-      trace(\`module \${key} FAILED: \${String(error?.stack ?? error).slice(0, 300)}\`)
     }
   }
 }
 
 export default { name, Config, apply }
 `
-writeFileSync(join(root, 'index.js'), server)
-console.log(`✓ index.js 单文件内联（${server.length} bytes，无相对导入）`)
+
+const entry = `/* dsh-composer 入口：零依赖探针（由 scripts/build-suite.mjs 生成；勿手改）。
+ * 静态 import 的失败发生在本文件第一条语句之前（宿主静默），所以核心代码
+ * 全部放在 server.js 由这里动态加载——成败都会留下取证记录。 */
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+
+const DIAG = join(homedir(), '.dsh', 'composer-debug.log')
+const trace = (line) => {
+  try {
+    mkdirSync(dirname(DIAG), { recursive: true })
+    appendFileSync(DIAG, \`\${new Date().toISOString()} \${line}\\n\`, 'utf8')
+  } catch { /* ignore */ }
+}
+
+trace(\`suite ENTRY pid=\${process.pid}\`)
+
+let core
+try {
+  core = await import('./server.js')
+  trace(\`server.js LOADED pid=\${process.pid}\`)
+} catch (error) {
+  trace(\`server.js FAILED: \${String(error?.stack ?? error).slice(0, 600)}\`)
+  throw error
+}
+
+export const name = core.name
+export const inject = core.inject
+export const Config = core.Config
+export function apply(ctx, config) {
+  trace(\`suite APPLY pid=\${process.pid}\`)
+  return core.apply(ctx, config)
+}
+export default core.default
+`
+writeFileSync(join(root, 'server.js'), server)
+writeFileSync(join(root, 'index.js'), entry)
+console.log(`✓ index.js 零依赖探针入口（${entry.length} bytes）+ server.js 核心（${server.length} bytes）`)
 
 /* ---- 客户端：六工厂内联 + glue ---- */
 const clientFiles = []
