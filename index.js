@@ -20,6 +20,9 @@
  */
 
 import Schema from '@deepseek-ai/schemastery'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import * as cost from './modules/cost.js'
 import * as picker from './modules/picker.js'
 import * as enhancer from './modules/enhancer.js'
@@ -28,6 +31,17 @@ import * as voice from './modules/voice.js'
 import * as snippets from './modules/snippets.js'
 
 export const name = 'composer'
+
+/** 决定性取证：顶层 LOAD（宿主是否 import 了本入口）/ APPLY（row 是否 apply）。 */
+const DIAG = join(homedir(), '.dsh', 'composer-debug.log')
+const trace = (line) => {
+  try {
+    mkdirSync(dirname(DIAG), { recursive: true })
+    appendFileSync(DIAG, `${new Date().toISOString()} ${line}\n`, 'utf8')
+  } catch { /* ignore */
+  }
+}
+trace(`suite module LOAD pid=${process.pid}`)
 
 const MODULES = [
   ['cost', cost],
