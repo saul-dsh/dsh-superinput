@@ -690,7 +690,7 @@ function releaseLedgerLock(path) {
 /* ------------------------------------------------------------------ */
 /* 插件入口                                                             */
 /* ------------------------------------------------------------------ */
-const inject = []
+export const inject = []
 
 export const Config = Schema.object({
   enabled: Schema.boolean().default(true).description('是否启用费用统计'),
@@ -1184,5 +1184,3 @@ export function apply(ctx, config) {
   }
 }
 
-
-export { inject }

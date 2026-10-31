@@ -156,7 +156,7 @@ async function patchDefaultRoute() {
   return null
 }
 
-const inject = ['llm']
+export const inject = ['llm']
 
 export const Config = Schema.object({
   /** 总开关：关闭后不监听任何事件，也不注册 web 端点。 */
@@ -668,5 +668,3 @@ export function apply(ctx, config) {
   })
 }
 
-
-export { inject }

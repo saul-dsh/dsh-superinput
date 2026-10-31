@@ -34,7 +34,7 @@ const DEBUG_LOG = join(homedir(), '.dsh', 'prompt-enhancer-debug.log')
 
 const name = 'prompt-enhancer'
 
-const inject = ['llm', 'tools']
+export const inject = ['llm', 'tools']
 
 export const Config = Schema.object({
   /** 总开关：关闭后插件完全不参与 pre-step，也不注册工具行为变化。 */
@@ -556,5 +556,3 @@ export function apply(ctx, config) {
   })
 }
 
-
-export { inject }
