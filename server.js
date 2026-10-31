@@ -2683,6 +2683,20 @@ function apply(ctx, config) {
           try { return JSON.parse(body) } catch { return {} }
         }
 
+        if (path === '/diag' && req.method === 'POST') {
+          let body = ''
+          for await (const chunk of req) body += chunk
+          let message = ''
+          try { message = String(JSON.parse(body).message ?? '').slice(0, 400) } catch { message = '' }
+          if (message) {
+            try {
+              mkdirSync(STORE_DIR, { recursive: true })
+              appendFile(join(STORE_DIR, 'snippets-debug.log'), `${new Date().toISOString()} ${message}\n`, 'utf8')
+            } catch { /* ignore */ }
+          }
+          send(200, { ok: true })
+          return
+        }
         if (path === '/list' && req.method === 'GET') {
           send(200, { items: store.list(), captureEnabled: config.captureEnabled === true })
           return

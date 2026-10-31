@@ -4317,6 +4317,22 @@ function createSnippetsClient(require) {
   function SnippetsButton(props) {
     const [open, setOpen] = React.useState(false)
     const buttonRef = React.useRef(null)
+    // 存活取证：挂载/卸载各记一条——按钮运行中消失时日志能区分
+    // 「组件被卸载」还是「还在但不可见」。
+    React.useEffect(() => {
+      void fetch(`${ENDPOINT}/diag`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'dock button MOUNTED' }),
+      }).catch(() => {})
+      return () => {
+        void fetch(`${ENDPOINT}/diag`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: 'dock button UNMOUNTED (host removed the slot component)' }),
+        }).catch(() => {})
+      }
+    }, [])
     return h('span', { className: 'dsh-cs-anchor' },
       h('button', {
         ref: buttonRef,
@@ -4326,6 +4342,29 @@ function createSnippetsClient(require) {
         onClick: (event) => { event.stopPropagation(); setOpen((value) => !value) },
       }, '片段'),
       open ? h(SnippetsPanel, { anchor: buttonRef.current, onClose: React.useCallback(() => setOpen(false), []) }) : null)
+  }
+
+  /**
+   * 错误边界 + 存活取证：真机曾出现「片段」按钮运行中消失（同槽位费用
+   * pill 存活）——组件树抛错被宿主卸载时必须留下证据，否则无从排查。
+   */
+  class SnippetsBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { crashed: false } }
+    static getDerivedStateFromError() { return { crashed: true } }
+    componentDidCatch(error, info) {
+      try {
+        void fetch(`${ENDPOINT}/diag`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: `boundary: ${String(error?.message ?? error).slice(0, 200)} | stack: ${String(info?.componentStack ?? '').slice(0, 200)}` }),
+        }).catch(() => {})
+      } catch { /* ignore */ }
+      console.error('[dsh-composer] snippets crashed:', error)
+    }
+    render() {
+      if (this.state.crashed) return null
+      return this.props.children
+    }
   }
 
   /** 草稿桥：面板插入用。draft 读取走 useInput，写入走 inputActions.setDraft；

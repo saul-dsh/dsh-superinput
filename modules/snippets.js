@@ -9,7 +9,7 @@
  * 服务端只做存储与去重（按文本归一指纹，重复复制置顶不重复占用）。
  */
 import Schema from '@deepseek-ai/schemastery'
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, rename, mkdir, appendFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -123,6 +123,20 @@ export function apply(ctx, config) {
           try { return JSON.parse(body) } catch { return {} }
         }
 
+        if (path === '/diag' && req.method === 'POST') {
+          let body = ''
+          for await (const chunk of req) body += chunk
+          let message = ''
+          try { message = String(JSON.parse(body).message ?? '').slice(0, 400) } catch { message = '' }
+          if (message) {
+            try {
+              mkdirSync(STORE_DIR, { recursive: true })
+              appendFile(join(STORE_DIR, 'snippets-debug.log'), `${new Date().toISOString()} ${message}\n`, 'utf8')
+            } catch { /* ignore */ }
+          }
+          send(200, { ok: true })
+          return
+        }
         if (path === '/list' && req.method === 'GET') {
           send(200, { items: store.list(), captureEnabled: config.captureEnabled === true })
           return
