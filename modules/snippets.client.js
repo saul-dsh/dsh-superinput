@@ -201,6 +201,10 @@ function createSnippetsClient(require) {
   function SnippetsButton(props) {
     const [open, setOpen] = React.useState(false)
     const buttonRef = React.useRef(null)
+    // onClose 必须无条件调用：曾经写在下方三元分支里，open 翻转时 hook
+    // 数量变化 → React 抛 "Rendered more hooks" → 边界把整个按钮卸成
+    // null（真机表现即「剪贴板一点就消失」，0.1.1 修复）。
+    const onClose = React.useCallback(() => setOpen(false), [])
     // 存活取证：挂载/卸载各记一条——按钮运行中消失时日志能区分
     // 「组件被卸载」还是「还在但不可见」。
     React.useEffect(() => {
@@ -226,7 +230,7 @@ function createSnippetsClient(require) {
         'aria-label': '片段管理器',
         onClick: (event) => { event.stopPropagation(); setOpen((value) => !value) },
       }, CLIPBOARD_ICON),
-      open ? h(SnippetsPanel, { anchor: buttonRef.current, onClose: React.useCallback(() => setOpen(false), []) }) : null)
+      open ? h(SnippetsPanel, { anchor: buttonRef.current, onClose }) : null)
   }
 
   /**
