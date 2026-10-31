@@ -4440,7 +4440,9 @@ window.__ModuleLoader__.load({
     }
     console.info('[dsh-composer] client active:', modules.map(([key]) => key).join('+'))
     return {
-      inject: ['slots'],
+      // 各模块 client 的 inject 并集：picker 需要 sessions/remote/modelDirectories
+      // 等，只声明 slots 会让它在 apply 时报 cannot get property without inject。
+      inject: [...new Set(modules.flatMap(([, mod]) => mod.inject ?? ['slots']))],
       apply(ctx) {
         for (const [key, mod] of modules) {
           try { mod.apply(ctx) }
