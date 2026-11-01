@@ -4560,6 +4560,30 @@ function createPromptsClient(require) {
       if (hideTimer) clearTimeout(hideTimer)
       hideTimer = setTimeout(hide, 1800)
     }
+    const copySel = async (text) => {
+      hide()
+      try {
+        await navigator.clipboard?.writeText(text)
+        toast('已复制')
+      } catch {
+        toast('复制失败')
+      }
+    }
+
+    /** 把选中文字追加进输入框草稿（草稿桥是 enhancer 客户端挂的全局）。 */
+    const addToDraft = (text) => {
+      hide()
+      try {
+        const set = window.__dshSuperinputSetDraft
+        if (!set) { toast('草稿桥未就绪，刷新后重试'); return }
+        const current = String(window.__dshSuperinputDraft?.() ?? '')
+        set(current ? `${current}\n${text}` : text)
+        toast('已添加到输入框')
+      } catch {
+        toast('添加失败')
+      }
+    }
+
     const save = async (text) => {
       const title = text.replace(/\s+/g, ' ').trim().slice(0, 40)
       hide()
@@ -4603,14 +4627,17 @@ function createPromptsClient(require) {
             const menu = document.createElement('div')
             menu.className = 'dsh-cp-selmenu'
             menu.addEventListener('mousedown', (e) => e.stopPropagation())
-            const mkItem = (label, kind) => {
+            const mkItem = (label, action) => {
               const b = document.createElement('button')
               b.className = 'dsh-cp-selitem'
               b.textContent = label
-              b.addEventListener('click', () => { void save(current) })
+              b.addEventListener('click', () => { void action(current) })
               return b
             }
-            menu.append(mkItem('存为模板'))
+            menu.append(
+              mkItem('复制', copySel),
+              mkItem('添加到对话', addToDraft),
+              mkItem('存为模板', save))
             container.replaceChildren(menu)
           } catch { /* ignore */ }
         }, 250)
