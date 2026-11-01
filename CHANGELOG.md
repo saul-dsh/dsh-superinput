@@ -2,6 +2,22 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-11-01
+
+### 修复：enhance /rewrite 请求期 "cannot get property \"llm\" without inject"
+
+- **真机实锤（套件顶层 inject 授权不可靠的第二例）**：0.3.0 修复的
+  tools.register 报错是 apply 期同款问题；本版发现 0.3.1 起的运行期版本——
+  /rewrite 处理器把**外层 ctx** 传给 rewriteWithLlm，ctx.llm 在套件宿主里
+  抛 cannot get property "llm" without inject，✨ 点增强永远 502（之前客户端
+  出错只写 console，看起来就是「点了没反应」）。
+- 修法（沿用 followup 模块的成熟模式）：webServer 嵌套作用域改成
+  `ctx.inject(['webServer', 'llm'], ...)`、处理器改传 `webCtx`；工具 execute
+  改传所在 `['llm','tools']` 作用域；pre-step 路径在嵌套作用域里捕获
+  `llmRef`，未就绪时 fail-open 放行原文。上游 dsh-prompt-enhancer 0.2.9
+  同步修复（独立安装形态同样受益），客户端增强失败从静默 console 改为
+  按钮短暂红 ✕ + title 带原因，4 秒消退。
+
 ## [0.3.1] - 2026-11-01
 
 ### prompts 模板库：使用排序 / 导入导出 / 斜杠命令
