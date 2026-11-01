@@ -1,6 +1,6 @@
 # dsh-superinput
 
-dsh（DeepSeek Harness）**超级输入框套件**：一个插件，九个输入区模块，模块级失败隔离。
+dsh（DeepSeek Harness）**超级输入框套件**：一个插件，七个输入区模块，模块级失败隔离。
 
 | 模块 | 功能 | 来源 |
 |---|---|---|
@@ -10,12 +10,11 @@ dsh（DeepSeek Harness）**超级输入框套件**：一个插件，九个输入
 | **followup** | 回合尾跟进建议 chips | 原 dsh-followup |
 | **voice** | 语音输入 | 原 dsh-siri-voice |
 | **prompts** | Prompt 模板库：手动保存常用模板，{{变量}} 占位符插入，内置 {{日期}}/{{时间}}/{{星期}}/{{剪贴板}} 动态变量；最近使用排序、JSON 导入导出、可 opt-in 注册为 / 斜杠命令；划选正文一键存为模板 | 新模块 |
-| **outline** | 长会话消息目录：按用户消息列大纲，点击滚动跳转 | 新模块 |
-| **exporter** | 会话导出 Markdown（标题栏 ⬇，含轮次与时间） | 新模块 |
 | **hub** | 设置总览：各模块生效配置聚合展示 + 运行时调节 | 新模块 |
 
 `dsh-compaction-control` 不在套件内（宿主配置补丁层 + /compact 命令桥，保持独立插件）。
-片段管理器（snippets）0.4.0 起按用户决定移除；既有 `snippets.json` 数据保留在原处不再使用。
+片段管理器（snippets）0.4.0、草稿（drafts）/消息目录（outline）/会话导出（exporter）0.5.0 起
+按用户决定移除；既有 snippets.json 数据保留在原处不再使用。
 
 ## 架构
 

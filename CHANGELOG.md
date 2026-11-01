@@ -2,6 +2,15 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-11-01
+
+### 移除消息目录与会话导出（用户裁定）
+
+- **outline（消息目录）与 exporter（会话导出 Markdown）整体移除**——上线
+  不到半天被用户判定不需要。套件回到七模块：cost / picker / enhancer /
+  followup / voice / prompts / hub。
+- 多帧 zstd 会话日志直读与 /diag 通道经验保留在案（followup 与 prompts）。
+
 ## [0.4.0] - 2026-11-01
 
 ### 新增三模块 + 两处既有模块增强；移除草稿与片段（用户裁定）

@@ -16,11 +16,10 @@ const hadStore = existsSync(STORE)
 const backup = hadStore ? readFileSync(STORE) : null
 
 let promptsHandler = null
-let exportHandler = null
 let enhancerHandler = null
 const webPaths = []
 const services = {
-  webServer: { register(spec) { webPaths.push(spec.path); if (spec.path.endsWith('/prompts')) promptsHandler = spec.handler; if (spec.path === '/api/dsh-superinput/export') exportHandler = spec.handler; if (spec.path === '/api/prompt-enhancer') enhancerHandler = spec.handler } },
+  webServer: { register(spec) { webPaths.push(spec.path); if (spec.path.endsWith('/prompts')) promptsHandler = spec.handler; if (spec.path === '/api/prompt-enhancer') enhancerHandler = spec.handler } },
   tools: { register() {} },
   // stub llm 流：/rewrite 端到端用它验证「请求期经嵌套作用域取 llm」的数据流
   llm: {
@@ -59,28 +58,14 @@ let failed = false
 try {
   const config = {}
   // enhancer 给显式 provider/model，让 configRoute 命中、不依赖 agentDefaultModel
-  for (const key of ['cost', 'picker', 'enhancer', 'followup', 'voice', 'prompts', 'exporter', 'hub']) config[key] = {}
+  for (const key of ['cost', 'picker', 'enhancer', 'followup', 'voice', 'prompts', 'hub']) config[key] = {}
   config.enhancer = { provider: 'stub', model: 'stub-model' }
   mod.apply(ctx, config)
-  for (const path of ['/api/dsh-cost', '/api/dsh-superinput/prompts', '/api/dsh-superinput/hub', '/api/prompt-enhancer', '/api/dsh-superinput/export']) {
+  for (const path of ['/api/dsh-cost', '/api/dsh-superinput/prompts', '/api/dsh-superinput/hub', '/api/prompt-enhancer']) {
     assert(webPaths.includes(path), `module apply: ${path} registered`)
   }
   assert(!!promptsHandler, 'module apply: prompts handler captured')
   assert(!!enhancerHandler, 'module apply: enhancer handler captured')
-  assert(!!exportHandler, 'module apply: export handler captured')
-
-  // exporter：无 sessionId → 400；假 sessionId → 404（不依赖真实会话文件）
-  const ex = async (sub) => {
-    const req = { url: `/api/dsh-superinput/export${sub}`, method: 'GET', async *[Symbol.asyncIterator]() {} }
-    let status = 0
-    let headers = {}
-    let out = null
-    const res = { setHeader(k, v) { headers[k] = v }, set statusCode(v) { status = v }, end(b) { out = b ? JSON.parse(b) : null } }
-    await exportHandler(req, res)
-    return { status, headers, out }
-  }
-  assert((await ex('/markdown')).status === 400, 'export: missing sessionId rejected')
-  assert((await ex('/outline?sessionId=nope')).status === 404, 'export: unknown session 404')
 
   // /rewrite 端到端：回归「请求期经嵌套作用域取 llm」——处理器若退回外层
   // ctx（0.3.1 真机事故），stub 环境里 ctx.llm 为 undefined → 502，此处必挂。

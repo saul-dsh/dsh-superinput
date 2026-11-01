@@ -120,14 +120,6 @@ for (const [key, pkg] of MODULES) {
   iifes.push(`/* ==== module: hub（手写） ==== */\nconst hubModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
   console.log('✓ inline hub')
 }
-// exporter（手写模块源：会话导出 Markdown + 消息目录数据）同样内联。
-{
-  const src = readFileSync(join(root, 'modules', 'exporter.js'), 'utf8')
-  const { imports, body } = inlineSource(src)
-  importLines.push(...imports)
-  iifes.push(`/* ==== module: exporter（手写） ==== */\nconst exporterModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
-  console.log('✓ inline exporter')
-}
 const allImports = mergeImports(importLines)
 // schemastery 由 glue 使用，保证在列。
 if (!allImports.some((line) => line.includes('@deepseek-ai/schemastery'))) {
@@ -159,7 +151,6 @@ const MODULES = [
   ['followup', followupModule],
   ['voice', voiceModule],
   ['prompts', promptsModule],
-  ['exporter', exporterModule],
   ['hub', hubModule],
 ]
 
@@ -174,7 +165,6 @@ export const Config = Schema.object({
   followup: followupModule.Config,
   voice: voiceModule.Config,
   prompts: promptsModule.Config,
-  exporter: exporterModule.Config,
   hub: hubModule.Config,
 })
 
@@ -256,8 +246,6 @@ for (const [key, pkg, factory] of MODULES) {
   console.log(`✓ client ${factory}`)
 }
 clientFiles.push(readFileSync(join(root, 'modules', 'prompts.client.js'), 'utf8'))
-clientFiles.push(readFileSync(join(root, 'modules', 'outline.client.js'), 'utf8'))
-clientFiles.push(readFileSync(join(root, 'modules', 'exporter.client.js'), 'utf8'))
 clientFiles.push(readFileSync(join(root, 'modules', 'hub.client.js'), 'utf8'))
 
 const glue = `/* dsh-superinput 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
@@ -275,8 +263,6 @@ window.__ModuleLoader__.load({
       ['followup', createFollowupClient],
       ['voice', createVoiceClient],
       ['prompts', createPromptsClient],
-      ['outline', createOutlineClient],
-      ['exporter', createExporterClient],
       ['hub', createHubClient],
     ]
     // 模块异常上报：console 不落盘，失败必须走 prompts /diag 留痕。
