@@ -368,9 +368,9 @@ function createPromptsClient(require) {
     return h('span', { ref, style: { display: 'inline-flex' } },
       h('button', {
         className: 'dsh-cp-btn',
-        title: '提示词模板',
+        title: 'Prompt（提示词模板）',
         onClick: () => setOpen((value) => !value),
-      }, '模板'),
+      }, 'Prompt'),
       open ? h(PromptsPanel, { anchor: ref.current, onClose: () => setOpen(false) }) : null)
   }
 
