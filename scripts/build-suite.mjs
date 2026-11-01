@@ -128,6 +128,14 @@ for (const [key, pkg] of MODULES) {
   iifes.push(`/* ==== module: hub（手写） ==== */\nconst hubModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
   console.log('✓ inline hub')
 }
+// rewrite（手写模块源）同样内联。
+{
+  const src = readFileSync(join(root, 'modules', 'rewrite.js'), 'utf8')
+  const { imports, body } = inlineSource(src)
+  importLines.push(...imports)
+  iifes.push(`/* ==== module: rewrite（手写） ==== */\nconst rewriteModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
+  console.log('✓ inline rewrite')
+}
 const allImports = mergeImports(importLines)
 // schemastery 由 glue 使用，保证在列。
 if (!allImports.some((line) => line.includes('@deepseek-ai/schemastery'))) {
@@ -150,6 +158,7 @@ const MODULES = [
   ['snippets', snippetsModule],
   ['prompts', promptsModule],
   ['hub', hubModule],
+  ['rewrite', rewriteModule],
 ]
 
 export const name = 'superinput'
@@ -165,6 +174,7 @@ export const Config = Schema.object({
   snippets: snippetsModule.Config,
   prompts: promptsModule.Config,
   hub: hubModule.Config,
+  rewrite: rewriteModule.Config,
 })
 
 /**
@@ -245,6 +255,7 @@ for (const [key, pkg, factory] of MODULES) {
 clientFiles.push(readFileSync(join(root, 'modules', 'snippets.client.js'), 'utf8'))
 clientFiles.push(readFileSync(join(root, 'modules', 'prompts.client.js'), 'utf8'))
 clientFiles.push(readFileSync(join(root, 'modules', 'hub.client.js'), 'utf8'))
+clientFiles.push(readFileSync(join(root, 'modules', 'rewrite.client.js'), 'utf8'))
 
 const glue = `/* dsh-superinput 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
  * 本文件由 scripts/build-suite.mjs 生成（模块工厂内联 + 下方 glue）；勿手改模块工厂。 */
@@ -263,6 +274,7 @@ window.__ModuleLoader__.load({
       ['snippets', createSnippetsClient],
       ['prompts', createPromptsClient],
       ['hub', createHubClient],
+      ['rewrite', createRewriteClient],
     ]
     // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
     const reportModuleError = (key, when, error) => {

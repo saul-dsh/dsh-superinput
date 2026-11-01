@@ -147,6 +147,15 @@ function createPromptsClient(require) {
     return found
   }
 
+  /** 内置动态变量：同步可取的自动填值；取不到的（如剪贴板）留空手填/异步预填。 */
+  function autoValue(name) {
+    const now = new Date()
+    if (name === '日期') return now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+    if (name === '时间') return now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    if (name === '星期') return now.toLocaleDateString('zh-CN', { weekday: 'long' })
+    return null
+  }
+
   function PromptsPanel({ anchor, onClose }) {
     const [items, setItems] = React.useState(null)
     const [query, setQuery] = React.useState('')
@@ -235,8 +244,29 @@ function createPromptsClient(require) {
           className: 'dsh-cp-row-main',
           onClick: () => {
             const vars = varsOf(item.body)
-            if (vars.length === 0) insert(item)
-            else setFill({ item, names: vars, values: {} })
+            if (vars.length === 0) { insert(item); return }
+            // 内置动态变量（日期/时间/星期）自动取值；全部能自动取就一键直插。
+            const values = {}
+            let pending = false
+            for (const name of vars) {
+              const auto = autoValue(name)
+              if (auto !== null) values[name] = auto
+              else pending = true
+            }
+            if (!pending) { insert(item, values); return }
+            setFill({ item, names: vars, values })
+            // {{剪贴板}} 异步预填：读不到就留空手填。
+            if (vars.includes('剪贴板')) {
+              void navigator.clipboard?.readText?.()
+                .then((text) => {
+                  if (typeof text === 'string' && text) {
+                    setFill((f) => (f && f.names.includes('剪贴板') && f.values['剪贴板'] === undefined
+                      ? { ...f, values: { ...f.values, 剪贴板: text } }
+                      : f))
+                  }
+                })
+                .catch(() => {})
+            }
           },
         },
           h('div', { className: 'dsh-cp-title' }, item.title),
