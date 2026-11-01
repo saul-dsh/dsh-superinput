@@ -295,6 +295,20 @@ window.__ModuleLoader__.load({
   },
 })
 `
+// Electron 渲染器禁用 API 门禁：window.prompt/alert/confirm 在 Electron 直接
+// 抛错（2026-11-01 真机事故：prompts 模板一点就消失）。构建期拦截。
+const forbiddenHits = []
+for (const [re, why] of [
+  [/window\.prompt\s*\(/, 'window.prompt（Electron 不支持，改用面板内表单）'],
+  [/window\.alert\s*\(/, 'window.alert（Electron 不支持，改用面板内提示）'],
+  [/window\.confirm\s*\(/, 'window.confirm（Electron 不支持，改用面板内按钮）'],
+]) {
+  if (re.test(glue)) forbiddenHits.push(why)
+}
+if (forbiddenHits.length) {
+  console.error('✗ client.js 含 Electron 渲染器禁用 API:\n  ' + forbiddenHits.join('\n  '))
+  process.exit(1)
+}
 writeFileSync(join(root, 'client.js'), glue)
 const clientModuleCount = (glue.match(/\['\w+', create\w+\]/g) ?? []).length
 console.log(`✓ client.js (${glue.length} bytes, ${clientModuleCount} modules)`)
