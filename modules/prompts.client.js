@@ -194,17 +194,6 @@ function createPromptsClient(require) {
       })
     }, [anchor])
 
-    // 临时取证：面板打开后上报容器/位置/挂载状态（定位 #200 根因用）。
-    React.useEffect(() => {
-      let panel = null
-      try { panel = document.querySelector('.dsh-cp-panel') } catch (e) { report(`probe query failed: ${e}`) }
-      let rectText = 'NULL'
-      try { rectText = anchor ? `${anchor.tagName}@${Math.round(anchor.getBoundingClientRect().left)},${Math.round(anchor.getBoundingClientRect().top)}` : 'NULL' } catch (e) { rectText = `rect-threw:${e}` }
-      let bodyText = 'no-body'
-      try { bodyText = `${document.body?.nodeType}/${document.body?.tagName}` } catch (e) { bodyText = `body-threw:${e}` }
-      report(`panel-open: anchor=${rectText} pos=${JSON.stringify(pos)} panelInDom=${!!panel} display=${panel ? getComputedStyle(panel).display : '-'} body=${bodyText} react=${React.version}`)
-    })
-
     const insert = (item, values) => {
       try {
         let out = String(item.body ?? '')
