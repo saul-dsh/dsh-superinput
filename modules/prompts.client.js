@@ -68,6 +68,7 @@ function createPromptsClient(require) {
 .dsh-cp-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-cp-row-main { flex: 1 1 auto; min-width: 0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
 .dsh-cp-title { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-cp-uses { color: var(--dsw-alias-label-tertiary); font-size: 10px; margin-left: 4px; }
 .dsh-cp-preview { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-cp-vars { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .dsh-cp-var { font-size: 10px; line-height: 14px; padding: 0 4px; border-radius: 3px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.08)); }
@@ -81,6 +82,7 @@ function createPromptsClient(require) {
 }
 .dsh-cp-mini:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.08)); }
 .dsh-cp-mini.danger:hover { color: #f87171; }
+.dsh-cp-mini.active { color: #3a83f7; }
 .dsh-cp-empty { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); padding: 12px 6px; text-align: center; }
 .dsh-cp-editor { display: flex; flex-direction: column; gap: 6px; }
 .dsh-cp-input, .dsh-cp-textarea {
@@ -156,7 +158,28 @@ function createPromptsClient(require) {
     return null
   }
 
-  function PromptsPanel({ anchor, onClose }) {
+  /** / 命令插入路径：内置动态变量自动取值，手填变量保留 {{名}} 原样由用户行内改。 */
+  function insertViaBridge(item) {
+    try {
+      void api('/use', { id: item.id })
+      let out = String(item.body ?? '')
+      for (const name of varsOf(out)) {
+        const auto = autoValue(name)
+        if (auto !== null) out = out.replace(new RegExp(`\\{\\{\\s*${name}\\s*\\}\\}`, 'g'), auto)
+      }
+      const set = window.__dshSuperinputSetDraft
+      if (!set) {
+        report('slash insert skipped: draft bridge missing')
+        return
+      }
+      const current = String(window.__dshSuperinputDraft?.() ?? '')
+      set(current ? `${current}\n${out}` : out)
+    } catch (error) {
+      report(`slash insert failed: ${error?.stack ?? error}`)
+    }
+  }
+
+  function PromptsPanel({ anchor, onClose, onSyncSlash }) {
     const [items, setItems] = React.useState(null)
     const [query, setQuery] = React.useState('')
     const [draft, setDraft] = React.useState(null)
@@ -167,7 +190,8 @@ function createPromptsClient(require) {
     const reload = React.useCallback(async () => {
       const data = await api('/list')
       if (data && Array.isArray(data.items)) setItems(data.items)
-    }, [])
+      onSyncSlash?.() // 模板增删改后重新对齐 / 命令注册
+    }, [onSyncSlash])
     React.useEffect(() => { void reload() }, [reload])
 
     // 编辑/填变量中不响应 Esc / 点外，避免丢失刚输入的内容。
@@ -205,6 +229,7 @@ function createPromptsClient(require) {
 
     const insert = (item, values) => {
       try {
+        void api('/use', { id: item.id }) // 使用计数：列表按最近使用排序
         let out = String(item.body ?? '')
         for (const [name, value] of Object.entries(values ?? {})) {
           out = out.replace(new RegExp(`\\{\\{\\s*${name}\\s*\\}\\}`, 'g'), value ?? '')
@@ -225,6 +250,50 @@ function createPromptsClient(require) {
 
     const remove = async (id) => { await api('/remove', { id }); void reload() }
     const pin = async (item) => { await api('/pin', { id: item.id, pinned: !item.pinned }); void reload() }
+    const toggleSlash = async (item) => { await api('/slash', { id: item.id, slash: !item.slash }); void reload() }
+
+    /** 导出：拉全量 JSON，走浏览器下载落到系统下载目录。 */
+    const doExport = async () => {
+      try {
+        const res = await fetch(`${ENDPOINT}/export`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(`export ${res.status}`)
+        const blob = new Blob([await res.text()], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const name = `dsh-prompts-${new Date().toISOString().slice(0, 10)}.json`
+        const a = document.createElement('a')
+        a.href = url
+        a.download = name
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 5000)
+        setFlash(`已导出到下载目录：${name}`)
+      } catch (error) {
+        report(`export failed: ${error?.stack ?? error}`)
+        setFlash(`导出失败：${String(error?.message ?? error)}`)
+      }
+    }
+
+    /** 导入：临时 file input 走系统文件选择框，JSON 解析后交给 /import 按 id 合并。 */
+    const doImport = () => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '.json,application/json'
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+        try {
+          const payload = JSON.parse(await file.text())
+          const res = await api('/import', payload)
+          if (!res?.ok) throw new Error(res?.error ?? 'import rejected')
+          setFlash(`导入完成：新增 ${res.added ?? 0}，更新 ${res.updated ?? 0}`)
+          void reload()
+        } catch (error) {
+          report(`import failed: ${error?.stack ?? error}`)
+          setFlash(`导入失败：${String(error?.message ?? error)}`)
+        }
+      }
+      input.click()
+    }
+
     const save = async () => {
       if (!draft || !String(draft.body ?? '').trim()) return
       await api('/save', {
@@ -269,13 +338,20 @@ function createPromptsClient(require) {
             }
           },
         },
-          h('div', { className: 'dsh-cp-title' }, item.title),
+          h('div', { className: 'dsh-cp-title' },
+            item.title,
+            item.uses > 0 ? h('span', { className: 'dsh-cp-uses' }, `${item.uses}次`) : null),
           h('div', { className: 'dsh-cp-preview' }, String(item.body).split('\n')[0].slice(0, 100)),
           vars.length > 0
             ? h('div', { className: 'dsh-cp-vars' }, vars.map((name) => h('span', { className: 'dsh-cp-var', key: name }, `{{${name}}}`)))
             : null),
         h('div', { className: 'dsh-cp-row-actions' },
           h('button', { className: 'dsh-cp-mini', title: item.pinned ? '取消收藏' : '收藏', onClick: () => { void pin(item) } }, item.pinned ? '★' : '☆'),
+          h('button', {
+            className: `dsh-cp-mini${item.slash ? ' active' : ''}`,
+            title: item.slash ? '取消 / 命令注册' : '注册为 / 命令（输入 / 按标题搜到）',
+            onClick: () => { void toggleSlash(item) },
+          }, '/'),
           h('button', {
             className: 'dsh-cp-mini',
             title: '编辑',
@@ -287,8 +363,10 @@ function createPromptsClient(require) {
     const q = String(query).trim().toLowerCase()
     const all = items ?? []
     const match = (item) => !q || String(item.title).toLowerCase().includes(q) || String(item.body).toLowerCase().includes(q)
-    const pinned = all.filter((item) => item.pinned && match(item))
-    const recent = all.filter((item) => !item.pinned && match(item))
+    // 组内按最近使用排序：没插过的退回创建时间，新模板仍在顶部
+    const byLastUsed = (a, b) => (b.usedAt ?? b.at ?? 0) - (a.usedAt ?? a.at ?? 0)
+    const pinned = all.filter((item) => item.pinned && match(item)).sort(byLastUsed)
+    const recent = all.filter((item) => !item.pinned && match(item)).sort(byLastUsed)
 
     const editor = draft
       ? h('div', { className: 'dsh-cp-editor' },
@@ -360,6 +438,8 @@ function createPromptsClient(require) {
           value: query,
           onInput: (event) => setQuery(event.target.value),
         }),
+        h('button', { className: 'dsh-cp-new', title: '导出全部模板（JSON）', onClick: () => { void doExport() } }, '↓'),
+        h('button', { className: 'dsh-cp-new', title: '从 JSON 备份导入', onClick: () => doImport() }, '↑'),
         h('button', {
           className: 'dsh-cp-new',
           title: '新建模板',
@@ -392,7 +472,7 @@ function createPromptsClient(require) {
     render() { return this.state.crashed ? null : this.props.children }
   }
 
-  function PromptsButton() {
+  function PromptsButton({ onSyncSlash }) {
     const [open, setOpen] = React.useState(false)
     const ref = React.useRef(null)
     return h('span', { ref, style: { display: 'inline-flex' } },
@@ -401,18 +481,66 @@ function createPromptsClient(require) {
         title: 'Prompt（提示词模板）',
         onClick: () => setOpen((value) => !value),
       }, 'Prompt'),
-      open ? h(PromptsPanel, { anchor: ref.current, onClose: () => setOpen(false) }) : null)
+      open ? h(PromptsPanel, { anchor: ref.current, onClose: () => setOpen(false), onSyncSlash }) : null)
   }
 
   return {
     inject: ['slots'],
     apply(ctx) {
       ensureStyle()
+
+      /* / 斜杠命令同步：标记了 slash 的模板注册进官方 / 菜单（action 命令）。
+       * commandUi 是官方 ui-commands 的客户端服务；旧宿主没有它时 inject 不解析，整块跳过。
+       * 按模板 opt-in 而不是全量注册，避免几十条模板淹没 / 菜单；同名冲突 register 会
+       * 抛错（官方约定 fail loud），这里 try/catch 吞掉并留痕，不影响其它模板。 */
+      const slashDisposers = new Map() // id -> { dispose, fp }
+      let commandUi = null
+      const slashName = (item) => {
+        const slug = String(item.title ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24)
+        return `tpl-${slug || String(item.id ?? '').slice(0, 8)}`
+      }
+      const slashFp = (item) => `${slashName(item)}|${item.title}`
+      const syncSlash = async () => {
+        if (!commandUi) return
+        let items = []
+        try {
+          const data = await api('/list')
+          items = Array.isArray(data?.items) ? data.items : []
+        } catch { return }
+        const wanted = new Map(items.filter((item) => item.slash === true).map((item) => [item.id, item]))
+        for (const [id, entry] of slashDisposers) {
+          const fresh = wanted.get(id)
+          if (!fresh || entry.fp !== slashFp(fresh)) {
+            entry.dispose?.()
+            slashDisposers.delete(id)
+          }
+        }
+        for (const [id, item] of wanted) {
+          if (slashDisposers.has(id)) continue
+          try {
+            const dispose = commandUi.register({
+              name: slashName(item),
+              label: () => item.title,
+              description: () => '插入提示词模板',
+              available: () => true,
+              ui: { kind: 'action', run: () => insertViaBridge(item) },
+            })
+            slashDisposers.set(id, { dispose: typeof dispose === 'function' ? dispose : null, fp: slashFp(item) })
+          } catch (error) {
+            report(`slash register "${item.title}": ${error?.message ?? error}`)
+          }
+        }
+      }
+      ctx.inject(['commandUi'], (scope) => {
+        commandUi = scope.get('commandUi')
+        void syncSlash()
+      })
+
       ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
         name: 'conversation.composer.dock',
         id: 'dsh-superinput-prompts-btn',
         order: 4,
-      }, (props) => h(PromptsBoundary, null, h(PromptsButton, props))))
+      }, (props) => h(PromptsBoundary, null, h(PromptsButton, { ...props, onSyncSlash: syncSlash }))))
     },
   }
 }

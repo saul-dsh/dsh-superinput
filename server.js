@@ -3162,6 +3162,67 @@ function createStore(maxItems) {
       schedule()
       return true
     },
+
+    /** 使用计数：面板点插入时调用，列表按最近使用排序。 */
+    use(id) {
+      const item = state.items.find((entry) => entry.id === id)
+      if (!item) return false
+      item.usedAt = Date.now()
+      item.uses = (item.uses ?? 0) + 1
+      schedule()
+      return true
+    },
+
+    /** 是否注册为 / 斜杠命令（客户端按此标记同步 commandUi）。 */
+    slash(id, on) {
+      const item = state.items.find((entry) => entry.id === id)
+      if (!item) return false
+      item.slash = !!on
+      schedule()
+      return true
+    },
+
+    /**
+     * 导入：按 id 合并；同 id 冲突保留 at（更新时间）较新的一方。
+     * id 不在库中则原 id 收编（跨机重复导入可去重），缺 id 才新分配。
+     */
+    import(items) {
+      let added = 0
+      let updated = 0
+      for (const raw of items.slice(0, 5000)) {
+        const body = String(raw?.body ?? '').replace(/\0/g, '')
+        if (!body.trim()) continue
+        const incoming = {
+          title: String(raw?.title ?? '').trim().slice(0, 80) || body.trim().slice(0, 40),
+          body,
+          tags: Array.isArray(raw?.tags)
+            ? raw.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 8)
+            : [],
+          at: Number.isFinite(raw?.at) ? raw.at : Date.now(),
+          pinned: raw?.pinned === true,
+          slash: raw?.slash === true,
+          usedAt: Number.isFinite(raw?.usedAt) ? raw.usedAt : undefined,
+          uses: Number.isFinite(raw?.uses) ? Math.max(0, Math.round(raw.uses)) : 0,
+        }
+        const existing = raw?.id ? state.items.find((entry) => entry.id === raw.id) : null
+        if (existing) {
+          if (incoming.at > (existing.at ?? 0)) {
+            Object.assign(existing, incoming)
+            updated++
+          }
+          continue
+        }
+        state.items.unshift({ id: raw?.id ? String(raw.id).slice(0, 64) : randomUUID(), ...incoming })
+        added++
+      }
+      const overflow = state.items.filter((item) => !item.pinned).length - maxItems
+      if (overflow > 0) {
+        const drop = new Set(state.items.filter((item) => !item.pinned).slice(-overflow).map((item) => item.id))
+        state.items = state.items.filter((item) => !drop.has(item.id))
+      }
+      if (added + updated > 0) schedule()
+      return { added, updated }
+    },
   }
 }
 
@@ -3248,6 +3309,28 @@ function apply(ctx, config) {
         if (path === '/pin' && req.method === 'POST') {
           const body = await readBody()
           send(200, { ok: store.pin(String(body.id ?? ''), body.pinned === true) })
+          return
+        }
+        if (path === '/use' && req.method === 'POST') {
+          const body = await readBody()
+          send(200, { ok: store.use(String(body.id ?? '')) })
+          return
+        }
+        if (path === '/slash' && req.method === 'POST') {
+          const body = await readBody()
+          send(200, { ok: store.slash(String(body.id ?? ''), body.slash === true) })
+          return
+        }
+        if (path === '/export' && req.method === 'GET') {
+          send(200, { version: 1, exportedAt: Date.now(), items: store.list() })
+          return
+        }
+        // 兼容两种载荷：导出文件原样（{items:[...]}）和裸数组。
+        if (path === '/import' && req.method === 'POST') {
+          const body = await readBody()
+          const items = Array.isArray(body) ? body : Array.isArray(body?.items) ? body.items : null
+          if (!items) { send(400, { error: 'invalid-payload' }); return }
+          send(200, { ok: true, ...store.import(items) })
           return
         }
         send(404, { error: 'not-found' })
