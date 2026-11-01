@@ -3275,7 +3275,7 @@ button[data-dsh-pe-busy]::after{
         onChangeLevel: (lv) => updateSettings({ level: lv }),
         onToggleAuto: () => updateSettings({ autoSend: !state.autoSend }),
       })) : null,
-      open && menu && pos ? h('div', {
+      menu && pos ? h('div', {
         className: 'dsh-pe-panel dsh-pe-menu',
         style: { top: pos.top, left: pos.left },
         onMouseDown: (ev) => ev.stopPropagation(),
