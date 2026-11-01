@@ -1,6 +1,6 @@
 {
   "name": "dsh-composer",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Super composer suite for the DeepSeek Harness (dsh): model & effort picker, prompt enhancement, follow-up suggestions, full cost engine (billing, backfill, price sync), voice input and a snippet manager — one plugin, six input-area modules with per-module failure isolation.",
   "type": "module",
   "main": "index.js",

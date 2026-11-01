@@ -23,6 +23,7 @@
 
 import Schema from '@deepseek-ai/schemastery'
 import { appendFile, mkdir } from 'node:fs/promises'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -41,6 +42,33 @@ export const Config = Schema.object({
 })
 
 export function apply(ctx, config) {
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
+  const live = { ...config }
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['enabled', 'composerSeat']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-power-picker', 'settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
   const say = (message) => {
     try { console.info(`[dsh-power-picker] ${message}`) } catch { /* ignore */ }
   }
@@ -51,8 +79,8 @@ export function apply(ctx, config) {
     } catch { /* ignore */ }
   }
 
-  say(`server boot, enabled=${config.enabled !== false}`)
-  void report(`server boot enabled=${config.enabled !== false}`)
+  say(`server boot, enabled=${live.enabled !== false}`)
+  void report(`server boot enabled=${live.enabled !== false}`)
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
@@ -65,12 +93,24 @@ export function apply(ctx, config) {
           res.end(JSON.stringify(body))
         }
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-power-picker/, '')
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          if (body.enabled !== undefined) live.enabled = body.enabled === true
+          if (typeof body.composerSeat === 'string') live.composerSeat = body.composerSeat.slice(0, 40)
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
+
 
         // 客户端注册前读取设置：enabled 总开关 + composerSeat 入口位置。
         if (path === '/settings' && req.method === 'GET') {
           send(200, {
-            enabled: config.enabled !== false,
-            composerSeat: config.composerSeat === true,
+            enabled: live.enabled !== false,
+            composerSeat: live.composerSeat === true,
             name,
           })
           return

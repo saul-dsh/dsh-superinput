@@ -99,11 +99,39 @@ function createStore(maxItems) {
 // 同步 fs 用于小文件原子写（store 数据量小，同步足够；异步 API 只在别处用）。
 
 export function apply(ctx, config) {
-  if (!config.enabled) return
-  const store = createStore(Math.max(20, Math.round(config.maxItems ?? 200)))
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。回放必须在
+  // createStore 之前，重启后上次的 maxItems 才对裁剪生效。
+  const live = { ...config }
+  if (!live.enabled) return
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['captureEnabled', 'maxItems', 'minChars']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'snippets.settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
+  const store = createStore(Math.max(20, Math.round(live.maxItems ?? 200)))
   store.load()
   ctx.effect(() => store.dispose(), 'dsh-composer: snippets store')
-  const minChars = Math.max(1, Math.round(config.minChars ?? 2))
+  const minChars = Math.max(1, Math.round(live.minChars ?? 2))
   const cap = (text) => (String(text ?? '').length > 100_000 ? String(text).slice(0, 100_000) : String(text ?? ''))
 
   ctx.inject(['webServer'], (webCtx) => {
@@ -123,6 +151,24 @@ export function apply(ctx, config) {
           try { return JSON.parse(body) } catch { return {} }
         }
 
+        if (path === '/settings' && req.method === 'GET') {
+          send(200, { ...live })
+          return
+        }
+        // 运行时改参数：只接受白名单字段，其余忽略（provider/model 这类
+        // 改了要重建路由，运行时改无效，不如不给入口）。
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          if (body.captureEnabled !== undefined) live.captureEnabled = body.captureEnabled === true
+          if (body.maxItems !== undefined) { const v = Number(body.maxItems); if (Number.isFinite(v)) live.maxItems = Math.min(2000, Math.max(20, Math.round(v))) }
+          if (body.minChars !== undefined) { const v = Number(body.minChars); if (Number.isFinite(v)) live.minChars = Math.min(100, Math.max(1, Math.round(v))) }
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
         if (path === '/diag' && req.method === 'POST') {
           let body = ''
           for await (const chunk of req) body += chunk
@@ -138,7 +184,7 @@ export function apply(ctx, config) {
           return
         }
         if (path === '/list' && req.method === 'GET') {
-          send(200, { items: store.list(), captureEnabled: config.captureEnabled === true })
+          send(200, { items: store.list(), captureEnabled: live.captureEnabled === true })
           return
         }
         if (path === '/add' && req.method === 'POST') {

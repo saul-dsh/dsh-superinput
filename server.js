@@ -725,13 +725,39 @@ const Config = Schema.object({
 })
 
 function apply(ctx, config) {
-  if (!config.enabled) return
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
+  const live = { ...config }
+  if (!live.enabled) return
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['budgetEnabled', 'budgetAmount', 'budgetPeriod', 'peakAlertEnabled', 'peakAlertNotify', 'peakAlertLeadMinutes', 'exchangeRate']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-cost', 'settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
 
   const lockPath = join(STORE_DIR, 'ledger.lock')
   const lock = acquireLedgerLock(lockPath)
-  void report(`server boot v0.8.0 pid=${process.pid} ledgerOwner=${lock.owner} retention=${config.retentionDays} rate=${config.exchangeRate} budget=${config.budgetEnabled ? `${config.budgetAmount}/${config.budgetPeriod}` : 'off'} backfill=${config.backfillEnabled && lock.owner ? 'on' : 'off'}`)
+  void report(`server boot v0.8.2 pid=${process.pid} ledgerOwner=${lock.owner} retention=${live.retentionDays} rate=${live.exchangeRate} budget=${live.budgetEnabled ? `${live.budgetAmount}/${live.budgetPeriod}` : 'off'} backfill=${live.backfillEnabled && lock.owner ? 'on' : 'off'}`)
 
-  const ledger = createLedger(config.retentionDays)
+  const ledger = createLedger(live.retentionDays)
   if (lock.owner) ledger.load()
   ctx.effect(() => { ledger.dispose(); if (lock.owner) releaseLedgerLock(lockPath) }, 'dsh-cost: ledger flush + lock release')
 
@@ -779,7 +805,7 @@ function apply(ctx, config) {
 
   // 历史回填：仅锁持有者执行（boot 后 3s，避开宿主启动高峰）；0.7.0 起
   // 改写 journal（与实时同源），由 ingest 统一折叠 + 指纹去重，天然不重。
-  if (config.backfillEnabled && lock.owner) {
+  if (live.backfillEnabled && lock.owner) {
     const backfillTimer = setTimeout(() => { void runBackfill(journal, ledger, priceEntryFor).catch((error) => { void report(`backfill crashed: ${String(error?.message ?? error).slice(0, 200)}`) }) }, 3000)
     backfillTimer.unref?.()
     ctx.effect(() => () => clearTimeout(backfillTimer), 'dsh-cost: backfill timer')
@@ -845,7 +871,7 @@ function apply(ctx, config) {
   let accountCount = 0
 
   function priceEntryFor(model) {
-    if (model && config.customPrices && config.customPrices[model]) return { custom: true, ...config.customPrices[model] }
+    if (model && live.customPrices && live.customPrices[model]) return { custom: true, ...live.customPrices[model] }
     const norm = normalizeModelId(model)
     if (legacyOnlyModels[norm]) return legacyOnlyModels[norm]
     if (norm.includes('deepseek')) {
@@ -969,6 +995,48 @@ function apply(ctx, config) {
           res.end(JSON.stringify(body))
         }
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-cost/, '')
+        if (path === '/settings' && req.method === 'GET') {
+          send(200, {
+            enabled: live.enabled,
+            exchangeRate: live.exchangeRate,
+            budgetEnabled: live.budgetEnabled,
+            budgetAmount: live.budgetAmount,
+            budgetPeriod: live.budgetPeriod,
+            peakAlertEnabled: live.peakAlertEnabled,
+            peakAlertLeadMinutes: live.peakAlertLeadMinutes,
+            peakAlertNotify: live.peakAlertNotify,
+            retentionDays: live.retentionDays,
+          })
+          return
+        }
+        // 运行时改参数：retentionDays 与 customPrices 不在白名单——前者启动时
+        // 已传给 createLedger，后者是对象结构，运行时改要么无效要么要重建缓存。
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          if (body.budgetEnabled !== undefined) live.budgetEnabled = body.budgetEnabled === true
+          if (body.budgetPeriod === 'day' || body.budgetPeriod === 'month') live.budgetPeriod = body.budgetPeriod
+          if (body.peakAlertEnabled !== undefined) live.peakAlertEnabled = body.peakAlertEnabled === true
+          if (body.peakAlertNotify !== undefined) live.peakAlertNotify = body.peakAlertNotify === true
+          if (body.budgetAmount !== undefined) {
+            const value = Number(body.budgetAmount)
+            if (Number.isFinite(value)) live.budgetAmount = Math.min(1_000_000, Math.max(0, value))
+          }
+          if (body.exchangeRate !== undefined) {
+            const value = Number(body.exchangeRate)
+            if (Number.isFinite(value) && value > 0) live.exchangeRate = Math.min(20, Math.max(1, value))
+          }
+          if (body.peakAlertLeadMinutes !== undefined) {
+            const value = Number(body.peakAlertLeadMinutes)
+            if (Number.isFinite(value)) live.peakAlertLeadMinutes = Math.min(30, Math.max(1, Math.round(value)))
+          }
+          persistSettings()
+          send(200, { ok: true })
+          return
+        }
+
 
         if (path === '/state' && req.method === 'GET') {
           const snap = await ledgerSnapshotFresh()
@@ -995,35 +1063,89 @@ function apply(ctx, config) {
           }
           sessions.sort((a, b) => b.at - a.at)
           // 预算：以展示币种（CNY）计，used 由对应周期的账本金额换算。
-          const budgetReady = config.budgetEnabled && Number(config.budgetAmount) > 0
+          const budgetReady = live.budgetEnabled && Number(live.budgetAmount) > 0
           const budgetUsd = budgetReady
-            ? (config.budgetPeriod === 'day'
+            ? (live.budgetPeriod === 'day'
               ? (snap.days[todayKey]?.cost ?? 0)
-              : config.budgetPeriod === 'month'
+              : live.budgetPeriod === 'month'
                 ? (month?.cost ?? 0)
                 : total.cost)
             : 0
           send(200, {
             serverNow: now,
-            display: { currency: 'CNY', rate: ledger.liveExchangeRate()?.rate ?? config.exchangeRate, rateSource: ledger.liveExchangeRate() ? 'auto' : 'config', rateFetchedAt: ledger.liveExchangeRate()?.fetchedAt ?? null },
+            display: { currency: 'CNY', rate: ledger.liveExchangeRate()?.rate ?? live.exchangeRate, rateSource: ledger.liveExchangeRate() ? 'auto' : 'config', rateFetchedAt: ledger.liveExchangeRate()?.fetchedAt ?? null },
             peak: { isPeak: isPeakAt(now), windows: PEAK_WINDOWS, nextSwitchAtMs: nextPeakSwitch(now)?.atMs ?? null, nextIsPeak: nextPeakSwitch(now)?.isPeak ?? null },
             today: todayKey in snap.days ? summarize(snap.days[todayKey]) : null,
             month,
             total: summarize(total),
             budget: budgetReady
-              ? { amount: config.budgetAmount, period: config.budgetPeriod, used: budgetUsd * config.exchangeRate, usedPct: budgetUsd * config.exchangeRate / config.budgetAmount }
+              ? { amount: live.budgetAmount, period: live.budgetPeriod, used: budgetUsd * live.exchangeRate, usedPct: budgetUsd * live.exchangeRate / live.budgetAmount }
               : null,
             recent,
             sessions: sessions.slice(0, 20),
             unmatched: [...unmatchedModels],
             streamAlive: streamArmed,
             alerts: {
-              peakEnabled: config.peakAlertEnabled === true,
-              leadMinutes: Math.min(30, Math.max(1, Math.round(config.peakAlertLeadMinutes ?? 2))),
-              notify: config.peakAlertNotify === true,
+              peakEnabled: live.peakAlertEnabled === true,
+              leadMinutes: Math.min(30, Math.max(1, Math.round(live.peakAlertLeadMinutes ?? 2))),
+              notify: live.peakAlertNotify === true,
             },
           })
           return
+        }
+
+        /**
+         * GET /forecast —— 月底花费预测。
+         *
+         * 用最近 7 个**完整**历史日的日均推算，不用今天（半天数据会把均值拉低）。
+         * 样本少于 3 天时标 basis=insufficient，前端据此提示「数据不足」而不是
+         * 显示一个不可信的数字。
+         */
+        if (path === '/forecast' && req.method === 'GET') {
+          const snap = await ledgerSnapshotFresh()
+          const now = Date.now()
+          const todayKey = localDayKey(now)
+          const monthPrefix = todayKey.slice(0, 7)
+
+          let monthCost = 0
+          let monthCalls = 0
+          const recent = []
+
+          for (const key of Object.keys(snap.days).sort()) {
+            const day = snap.days[key]
+            if (key.startsWith(monthPrefix)) {
+              monthCost += day.cost ?? 0
+              monthCalls += day.calls ?? 0
+            }
+            // 只取完整历史日，今天的数据还在增长
+            if (key < todayKey && key >= localDayKey(now - 7 * 86400000)) {
+              recent.push({ date: key, cost: day.cost ?? 0, calls: day.calls ?? 0 })
+            }
+          }
+
+          const n = recent.length
+          const sumCost = recent.reduce((acc, d) => acc + d.cost, 0)
+          const sumCalls = recent.reduce((acc, d) => acc + d.calls, 0)
+          const avgDaily = n > 0 ? sumCost / n : 0
+          const avgCalls = n > 0 ? sumCalls / n : 0
+
+          const nowDate = new Date(now)
+          const daysInMonth = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 0).getDate()
+          const daysLeft = daysInMonth - nowDate.getDate()
+          const projected = monthCost + avgDaily * daysLeft
+
+          return json({
+            monthCost,
+            monthCalls,
+            avgDaily,
+            avgCalls,
+            daysLeft,
+            projected,
+            avgPerCall: monthCalls > 0 ? monthCost / monthCalls : 0,
+            sampleDays: n,
+            basis: n >= 3 ? 'recent' : 'insufficient',
+            recent,
+          })
         }
 
         if (path === '/calls' && req.method === 'GET') {
@@ -1118,7 +1240,7 @@ function apply(ctx, config) {
           res.statusCode = 200
           res.setHeader('content-type', 'application/json')
           res.setHeader('content-disposition', 'attachment; filename="dsh-cost-ledger.json"')
-          res.end(JSON.stringify({ exportedAt: Date.now(), display: { currency: 'CNY', rate: ledger.liveExchangeRate()?.rate ?? config.exchangeRate }, days: snap.days }))
+          res.end(JSON.stringify({ exportedAt: Date.now(), display: { currency: 'CNY', rate: ledger.liveExchangeRate()?.rate ?? live.exchangeRate }, days: snap.days }))
           return
         }
 
@@ -1231,6 +1353,7 @@ const pickerModule = (() => {
 
 
 
+
 const name = 'power-picker'
 
 const DIAG_LOG = join(homedir(), '.dsh', 'power-picker-debug.log')
@@ -1246,6 +1369,33 @@ const Config = Schema.object({
 })
 
 function apply(ctx, config) {
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
+  const live = { ...config }
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['enabled', 'composerSeat']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-power-picker', 'settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
   const say = (message) => {
     try { console.info(`[dsh-power-picker] ${message}`) } catch { /* ignore */ }
   }
@@ -1256,8 +1406,8 @@ function apply(ctx, config) {
     } catch { /* ignore */ }
   }
 
-  say(`server boot, enabled=${config.enabled !== false}`)
-  void report(`server boot enabled=${config.enabled !== false}`)
+  say(`server boot, enabled=${live.enabled !== false}`)
+  void report(`server boot enabled=${live.enabled !== false}`)
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
@@ -1270,12 +1420,24 @@ function apply(ctx, config) {
           res.end(JSON.stringify(body))
         }
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-power-picker/, '')
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          if (body.enabled !== undefined) live.enabled = body.enabled === true
+          if (typeof body.composerSeat === 'string') live.composerSeat = body.composerSeat.slice(0, 40)
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
+
 
         // 客户端注册前读取设置：enabled 总开关 + composerSeat 入口位置。
         if (path === '/settings' && req.method === 'GET') {
           send(200, {
-            enabled: config.enabled !== false,
-            composerSeat: config.composerSeat === true,
+            enabled: live.enabled !== false,
+            composerSeat: live.composerSeat === true,
             name,
           })
           return
@@ -1323,6 +1485,7 @@ const enhancerModule = (() => {
  *   - createUserMessage({ content, source }) 来自 '@deepseek-ai/dsh-llm'
  *   - defineTool(...) 来自 '@deepseek-ai/dsh-tools'；服务名 'llm' / 'tools'
  */
+
 
 
 
@@ -1590,6 +1753,34 @@ async function rewriteWithLlm(ctx, route, raw, config, level, outerSignal) {
 /* ------------------------------------------------------------------ */
 
 function apply(ctx, config) {
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
+  const live = { ...config }
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。必须先回放
+  // 再初始化 currentLevel，重启后上次的强度档位才生效。
+  const SETTINGS_KEYS = ['level', 'mode', 'preStepAuto', 'language', 'styleHint', 'timeoutMs', 'minPromptLength', 'maxInputChars']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'prompt-enhancer', 'settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
   const log = (level, msg) => console[level === 'error' ? 'error' : 'log'](`[dsh-prompt-enhancer] ${msg}`)
 
   /** 最近一次见到的会话路由，供 enhance_prompt 工具和 web 端点在没有显式配置时复用。 */
@@ -1599,7 +1790,7 @@ function apply(ctx, config) {
    * 运行时增强强度。前端选择器通过 /api/prompt-enhancer/settings 改这里，
    * 让 pre-step 与手动按钮共用同一档位。初始值来自配置。
    */
-  let currentLevel = Object.prototype.hasOwnProperty.call(LEVELS, config.level) ? config.level : 'high'
+  let currentLevel = Object.prototype.hasOwnProperty.call(LEVELS, live.level) ? live.level : 'high'
 
   /**
    * 前端刚增强过的文本指纹。发送拦截路径增强完再 submit 时，pre-step 会再看到
@@ -1643,7 +1834,7 @@ function apply(ctx, config) {
 
   /** 配置里显式指定的路由。 */
   function configRoute() {
-    return config.provider && config.model ? { provider: config.provider, model: config.model } : null
+    return live.provider && live.model ? { provider: live.provider, model: live.model } : null
   }
 
   function resolveRoute(agent) {
@@ -1703,15 +1894,15 @@ function apply(ctx, config) {
     return changed ? out : messages
   }
 
-  if (config.enabled) {
+  if (live.enabled) {
     ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
       const decision = await next()
       if (decision.kind !== 'enter') return decision
       const route = resolveRoute(agent)
       if (route) lastRoute = route
-      if (config.mode !== 'auto') return decision
+      if (live.mode !== 'auto') return decision
       // 前端拦截发送并自行增强时，这里不再二次增强（否则同一句话被改两遍）。
-      if (!config.preStepAuto) return decision
+      if (!live.preStepAuto) return decision
       const messages = await enhanceBatch(decision.messages, agent, signal)
       if (messages === decision.messages) return decision
       // spread 保留未来新增的 decision 字段
@@ -1741,7 +1932,7 @@ function apply(ctx, config) {
       },
     }))
 
-    log('log', `loaded (mode=${config.mode}, timeout=${config.timeoutMs}ms)`)
+    log('log', `loaded (mode=${live.mode}, timeout=${live.timeoutMs}ms)`)
   } else {
     log('log', 'loaded but disabled by config')
   }
@@ -1765,7 +1956,7 @@ function apply(ctx, config) {
 
         // 前端初始化：读当前档位，避免刷新后选择器回落到默认值。
         if (path === '/settings' && req.method === 'GET') {
-          send(200, { level: currentLevel, levels: Object.keys(LEVELS) })
+          send(200, { ...live, level: currentLevel, levels: Object.keys(LEVELS) })
           return
         }
 
@@ -1780,14 +1971,28 @@ function apply(ctx, config) {
             send(400, { error: 'invalid-json' })
             return
           }
-          const next = body?.level
-          if (typeof next !== 'string' || !(next in LEVELS)) {
-            send(400, { error: `level must be one of ${Object.keys(LEVELS).join('/')}` })
-            return
+          // level 是运行时主开关，必须合法；其余字段宽松校验后写入 live。
+          if (body?.level !== undefined) {
+            const next = body.level
+            if (typeof next !== 'string' || !(next in LEVELS)) {
+              send(400, { error: `level must be one of ${Object.keys(LEVELS).join('/')}` })
+              return
+            }
+            currentLevel = next
+            live.level = next
+            log('log', `level -> ${next}`)
           }
-          currentLevel = next
-          log('log', `level -> ${next}`)
-          send(200, { level: currentLevel })
+          if (body?.mode === 'auto' || body?.mode === 'manual') live.mode = body.mode
+          if (body?.preStepAuto !== undefined) live.preStepAuto = body.preStepAuto === true
+          if (body?.language === 'auto' || body?.language === 'zh' || body?.language === 'en') live.language = body.language
+          if (typeof body?.styleHint === 'string') live.styleHint = body.styleHint.slice(0, 500)
+          for (const [key, min, max] of [['timeoutMs', 1000, 120000], ['minPromptLength', 1, 200], ['maxInputChars', 100, 100000]]) {
+            if (body?.[key] === undefined) continue
+            const value = Number(body[key])
+            if (Number.isFinite(value)) live[key] = Math.min(max, Math.max(min, Math.round(value)))
+          }
+          persistSettings()
+          send(200, { ...live, level: currentLevel })
           return
         }
 
@@ -1828,8 +2033,8 @@ function apply(ctx, config) {
           send(400, { error: 'text must be a non-empty string' })
           return
         }
-        if (text.length > config.maxInputChars) {
-          send(413, { error: `text exceeds ${config.maxInputChars} chars` })
+        if (text.length > live.maxInputChars) {
+          send(413, { error: `text exceeds ${live.maxInputChars} chars` })
           return
         }
         // 单次请求可以覆盖档位（发送拦截路径会带上当前选择），否则用运行时档位。
@@ -2095,9 +2300,35 @@ function parseSuggestions(text, count) {
 /* ------------------------------------------------------------------ */
 
 function apply(ctx, config) {
-  if (!config.enabled) return
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
+  const live = { ...config }
+  if (!live.enabled) return
 
-  void report(`server boot v0.3.2 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['maxSuggestions', 'idleDelayMs', 'timeoutMs', 'minAssistantChars', 'userChars', 'assistantChars']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-followup', 'settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
+  void report(`server boot v0.3.3 enabled=true minAssistantChars=${live.minAssistantChars} idleDelayMs=${live.idleDelayMs} route=${live.provider || ''}/${live.model || ''}(follow-session)`)
 
   /** 每个 agent 的对话尾部累积：userText 来自 pre-step，assistantText 来自流帧。 */
   const buffers = new WeakMap()
@@ -2194,7 +2425,7 @@ function apply(ctx, config) {
   }
 
   function configRoute() {
-    return config.provider && config.model ? { provider: config.provider, model: config.model } : null
+    return live.provider && live.model ? { provider: live.provider, model: live.model } : null
   }
 
   function resolveRoute(agent) {
@@ -2258,8 +2489,8 @@ function apply(ctx, config) {
     }
     const userText = (buf.userText ?? '').trim()
     const assistantText = (buf.assistantText ?? '').trim()
-    if (!userText || assistantText.length < config.minAssistantChars) {
-      void report(`idle skip buf#${buf.id} agent=${agentConstructorName(agent)} userLen=${userText.length} assistantLen=${assistantText.length} (need user>0 & assistant>=${config.minAssistantChars})`)
+    if (!userText || assistantText.length < live.minAssistantChars) {
+      void report(`idle skip buf#${buf.id} agent=${agentConstructorName(agent)} userLen=${userText.length} assistantLen=${assistantText.length} (need user>0 & assistant>=${live.minAssistantChars})`)
       return
     }
     // 缓冲片刻：多步回合的步骤之间也会闪现 idle，期间回到 running 就作废。
@@ -2267,7 +2498,7 @@ function apply(ctx, config) {
     pendingTimer = setTimeout(() => {
       pendingTimer = 0
       void generateFor(agent, buf, userText, assistantText)
-    }, Math.max(200, config.idleDelayMs))
+    }, Math.max(200, live.idleDelayMs))
   })
 
   /* -- 主通道：llm/stream 瀑布旁路捕获（0.2.3，借鉴 dsh-cost-meter） -- */
@@ -2356,7 +2587,7 @@ function apply(ctx, config) {
   /* -- 生成 --------------------------------------------------------- */
 
   async function runGeneration(llm, route, userText, assistantText, signal) {
-    const count = Math.min(2, Math.max(1, Math.round(config.maxSuggestions)))
+    const count = Math.min(2, Math.max(1, Math.round(live.maxSuggestions)))
     // 深度标记内发起：本次生成调用经过 llm/stream 瀑布时，监听器读到
     // 标记即透传——建议生成的 prompt 不会被误缓存为对话轮。
     // reasoningEffort low + maxTokens 2000：真机 04:50 实测 profile 默认
@@ -2403,7 +2634,7 @@ function apply(ctx, config) {
     }
     const controller = new AbortController()
     buf.controller = controller
-    const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
+    const timer = setTimeout(() => controller.abort(new Error('followup timeout')), live.timeoutMs)
     // 根作用域没声明 llm inject 时属性访问直接抛（真机 07:41 实证）；
     // 捕住降级——cache/日志路径不受影响。
     let eventLlm = null
@@ -2456,6 +2687,28 @@ function apply(ctx, config) {
           res.end(JSON.stringify(body))
         }
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-followup/, '')
+        if (path === '/settings' && req.method === 'GET') {
+          send(200, { ...live })
+          return
+        }
+        // 运行时改参数：白名单字段，provider/model 不在其中（改了要重建路由）。
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          const numeric = { maxSuggestions: [1, 3], idleDelayMs: [200, 10000], timeoutMs: [1000, 120000], minAssistantChars: [0, 500], userChars: [100, 4000], assistantChars: [100, 8000] }
+          for (const [key, [min, max]] of Object.entries(numeric)) {
+            if (body[key] === undefined) continue
+            const value = Number(body[key])
+            if (!Number.isFinite(value)) continue
+            live[key] = Math.min(max, Math.max(min, Math.round(value)))
+          }
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
+
 
         // 客户端在每次「生成中 → 空闲」后拉取；seq 相同就静默忽略。
         // Trae 逻辑：建议随会话持久化、无时间过期，只被下一轮替换或清除。
@@ -2501,7 +2754,7 @@ function apply(ctx, config) {
           }
           const source = cached ? 'cache' : 'log'
           const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
+          const timer = setTimeout(() => controller.abort(new Error('followup timeout')), live.timeoutMs)
           try {
             void report(`generate(${source}) start route=${route.provider}/${route.model} userLen=${turn.userText.length} assistantLen=${turn.assistantText.length}`)
             const suggestions = await runGeneration(webCtx.llm, route, turn.userText, turn.assistantText, controller.signal)
@@ -2659,11 +2912,39 @@ function createStore(maxItems) {
 // 同步 fs 用于小文件原子写（store 数据量小，同步足够；异步 API 只在别处用）。
 
 function apply(ctx, config) {
-  if (!config.enabled) return
-  const store = createStore(Math.max(20, Math.round(config.maxItems ?? 200)))
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。回放必须在
+  // createStore 之前，重启后上次的 maxItems 才对裁剪生效。
+  const live = { ...config }
+  if (!live.enabled) return
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['captureEnabled', 'maxItems', 'minChars']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'snippets.settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
+  const store = createStore(Math.max(20, Math.round(live.maxItems ?? 200)))
   store.load()
   ctx.effect(() => store.dispose(), 'dsh-composer: snippets store')
-  const minChars = Math.max(1, Math.round(config.minChars ?? 2))
+  const minChars = Math.max(1, Math.round(live.minChars ?? 2))
   const cap = (text) => (String(text ?? '').length > 100_000 ? String(text).slice(0, 100_000) : String(text ?? ''))
 
   ctx.inject(['webServer'], (webCtx) => {
@@ -2683,6 +2964,24 @@ function apply(ctx, config) {
           try { return JSON.parse(body) } catch { return {} }
         }
 
+        if (path === '/settings' && req.method === 'GET') {
+          send(200, { ...live })
+          return
+        }
+        // 运行时改参数：只接受白名单字段，其余忽略（provider/model 这类
+        // 改了要重建路由，运行时改无效，不如不给入口）。
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          if (body.captureEnabled !== undefined) live.captureEnabled = body.captureEnabled === true
+          if (body.maxItems !== undefined) { const v = Number(body.maxItems); if (Number.isFinite(v)) live.maxItems = Math.min(2000, Math.max(20, Math.round(v))) }
+          if (body.minChars !== undefined) { const v = Number(body.minChars); if (Number.isFinite(v)) live.minChars = Math.min(100, Math.max(1, Math.round(v))) }
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
         if (path === '/diag' && req.method === 'POST') {
           let body = ''
           for await (const chunk of req) body += chunk
@@ -2698,7 +2997,7 @@ function apply(ctx, config) {
           return
         }
         if (path === '/list' && req.method === 'GET') {
-          send(200, { items: store.list(), captureEnabled: config.captureEnabled === true })
+          send(200, { items: store.list(), captureEnabled: live.captureEnabled === true })
           return
         }
         if (path === '/add' && req.method === 'POST') {
@@ -2728,6 +3027,298 @@ function apply(ctx, config) {
   return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }
 })()
 
+/* ==== module: prompts（手写） ==== */
+const promptsModule = (() => {
+/**
+ * dsh-composer · prompts 模块（提示词模板库）
+ *
+ * 和 snippets 互补：snippets 自动捕获窗口内复制，prompts 是手动保存的常用模板。
+ * 支持 {{变量}} 占位符，插入时由前端弹窗填值；服务端只存原文，不做替换。
+ *
+ * 存储 ~/.dsh/storages/dsh-composer/prompts.json（结构 { items: [...] }）。
+ */
+
+
+
+
+
+
+const moduleInject = []
+
+const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+const STORE_PATH = join(STORE_DIR, 'prompts.json')
+
+const Config = Schema.object({
+  enabled: Schema.boolean().default(true).description('启用提示词模板库'),
+  maxItems: Schema.number().default(500).description('最多保存多少条模板（收藏不计入上限）'),
+})
+
+function createStore(maxItems) {
+  let state = { items: [] }
+  let dirty = false
+  let timer = null
+
+  const load = () => {
+    try { state = JSON.parse(readFileSync(STORE_PATH, 'utf8')) } catch { /* 首次或损坏：空库 */ }
+    if (!state || !Array.isArray(state.items)) state = { items: [] }
+  }
+
+  const flush = () => {
+    if (!dirty) return
+    try {
+      mkdirSync(STORE_DIR, { recursive: true })
+      const tmp = `${STORE_PATH}.${process.pid}.tmp`
+      writeFileSync(tmp, JSON.stringify(state), 'utf8')
+      renameSync(tmp, STORE_PATH)
+      dirty = false
+    } catch (error) {
+      console.error('[dsh-composer] prompts flush failed:', error?.message ?? error)
+    }
+  }
+
+  const schedule = () => {
+    dirty = true
+    if (timer) return
+    timer = setTimeout(() => { timer = null; flush() }, 500)
+    timer.unref?.()
+  }
+
+  return {
+    load,
+    dispose() { if (timer) { clearTimeout(timer); timer = null } flush() },
+    list() { return state.items },
+
+    /** 新建或更新。title 为空时用正文前 40 字兜底，避免列表里出现无标题条目。 */
+    save({ id, title, body, tags }) {
+      const cleanBody = String(body ?? '').replace(/\0/g, '')
+      if (!cleanBody.trim()) return { ok: false, reason: 'empty-body' }
+      const cleanTitle = String(title ?? '').trim().slice(0, 80) || cleanBody.trim().slice(0, 40)
+      const cleanTags = Array.isArray(tags)
+        ? tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 8)
+        : []
+
+      if (id) {
+        const item = state.items.find((entry) => entry.id === id)
+        if (!item) return { ok: false, reason: 'not-found' }
+        item.title = cleanTitle
+        item.body = cleanBody
+        item.tags = cleanTags
+        item.at = Date.now()
+        schedule()
+        return { ok: true, id, created: false }
+      }
+
+      const newId = randomUUID()
+      state.items.unshift({
+        id: newId,
+        title: cleanTitle,
+        body: cleanBody,
+        tags: cleanTags,
+        at: Date.now(),
+        pinned: false,
+      })
+      // 收藏条目不占上限
+      const overflow = state.items.filter((item) => !item.pinned).length - maxItems
+      if (overflow > 0) {
+        const drop = new Set(state.items.filter((item) => !item.pinned).slice(-overflow).map((item) => item.id))
+        state.items = state.items.filter((item) => !drop.has(item.id))
+      }
+      schedule()
+      return { ok: true, id: newId, created: true }
+    },
+
+    remove(id) {
+      const before = state.items.length
+      state.items = state.items.filter((item) => item.id !== id)
+      if (state.items.length !== before) schedule()
+      return state.items.length !== before
+    },
+
+    pin(id, pinned) {
+      const item = state.items.find((entry) => entry.id === id)
+      if (!item) return false
+      item.pinned = !!pinned
+      schedule()
+      return true
+    },
+  }
+}
+
+function apply(ctx, config) {
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。回放必须在
+  // createStore 之前，重启后上次的 maxItems 才对裁剪生效。
+  const live = { ...config }
+  if (!live.enabled) return
+
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['maxItems']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'prompts.settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
+  const store = createStore(Math.max(20, Math.round(live.maxItems ?? 500)))
+  store.load()
+  ctx.effect(() => store.dispose(), 'dsh-composer: prompts store')
+
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'prefix',
+      path: '/api/dsh-composer/prompts',
+      handler: async (req, res) => {
+        const send = (status, body) => {
+          res.statusCode = status
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(body))
+        }
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/prompts/, '')
+        const readBody = async () => {
+          let body = ''
+          for await (const chunk of req) body += chunk
+          try { return JSON.parse(body) } catch { return {} }
+        }
+
+        if (path === '/settings' && req.method === 'GET') {
+          send(200, { ...live })
+          return
+        }
+        // 运行时改参数：只接受白名单字段，其余忽略（provider/model 这类
+        // 改了要重建路由，运行时改无效，不如不给入口）。
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          if (body.maxItems !== undefined) { const v = Number(body.maxItems); if (Number.isFinite(v)) live.maxItems = Math.min(5000, Math.max(20, Math.round(v))) }
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
+        if (path === '/list' && req.method === 'GET') {
+          send(200, { items: store.list() })
+          return
+        }
+        if (path === '/save' && req.method === 'POST') {
+          send(200, store.save(await readBody()))
+          return
+        }
+        if (path === '/remove' && req.method === 'POST') {
+          const body = await readBody()
+          send(200, { ok: store.remove(String(body.id ?? '')) })
+          return
+        }
+        if (path === '/pin' && req.method === 'POST') {
+          const body = await readBody()
+          send(200, { ok: store.pin(String(body.id ?? ''), body.pinned === true) })
+          return
+        }
+        send(404, { error: 'not-found' })
+      },
+    }), 'dsh-composer: prompts endpoints')
+  })
+}
+  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }
+})()
+
+/* ==== module: hub（手写） ==== */
+const hubModule = (() => {
+/**
+ * dsh-composer · hub 模块（设置总览）
+ *
+ * 把各模块的**最终生效配置**聚合成一张表，供设置页展示。
+ *
+ * 为什么不做写入：dsh 的插件 Config 在启动时由宿主读取，运行时改不了。
+ * 各模块自己的 /settings 端点改的是内存 live 副本 + storages 持久化，
+ * 重启后由模块自己回放。这里只回答「现在是什么状态」。
+ *
+ * 数据来源两层：apply 时聚合层塞进来的 snapshot（defaults 与宿主配置合并），
+ * 叠加各模块落盘的显式改动（<storages>/dsh-composer/<mod>.settings.json）——
+ * 只吐快照会在重启后与实际运行值不符（快照不知道回放）。
+ */
+
+
+
+
+
+const moduleInject = []
+
+const Config = Schema.object({
+  enabled: Schema.boolean().default(true).description('在设置页显示「输入栏」总览'),
+})
+
+/** 各模块持久化文件名（与各模块 SETTINGS_PATH 保持一致）。 */
+const PERSISTED_FILES = [
+  ['cost', 'cost.settings.json'],
+  ['enhancer', 'enhancer.settings.json'],
+  ['followup', 'followup.settings.json'],
+  ['picker', 'picker.settings.json'],
+  ['snippets', 'snippets.settings.json'],
+  ['prompts', 'prompts.settings.json'],
+]
+
+function loadPersisted() {
+  const persisted = {}
+  const dir = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+  for (const [mod, file] of PERSISTED_FILES) {
+    try {
+      const saved = JSON.parse(readFileSync(join(dir, file), 'utf8'))
+      if (saved && typeof saved === 'object' && Object.keys(saved).length > 0) persisted[mod] = saved
+    } catch { /* 模块无存档：跟随配置 */ }
+  }
+  return persisted
+}
+
+function apply(ctx, config) {
+  if (!config.enabled) return
+  const snapshot = config.snapshot ?? {}
+
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'prefix',
+      path: '/api/dsh-composer/hub',
+      handler: async (req, res) => {
+        const send = (status, body) => {
+          res.statusCode = status
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(body))
+        }
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/hub/, '')
+        if (path === '/state' && req.method === 'GET') {
+          const persisted = loadPersisted()
+          const modules = {}
+          for (const [mod, cfg] of Object.entries(snapshot)) modules[mod] = { ...cfg, ...(persisted[mod] ?? {}) }
+          for (const [mod, saved] of Object.entries(persisted)) {
+            if (!modules[mod]) modules[mod] = { ...saved }
+            else modules[mod].persistedKeys = Object.keys(saved)
+          }
+          send(200, { modules })
+          return
+        }
+        send(404, { error: 'not-found' })
+      },
+    }), 'dsh-composer: hub endpoint')
+  })
+}
+  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }
+})()
+
 const MODULES = [
   ['cost', costModule],
   ['picker', pickerModule],
@@ -2735,6 +3326,8 @@ const MODULES = [
   ['followup', followupModule],
   ['voice', voiceModule],
   ['snippets', snippetsModule],
+  ['prompts', promptsModule],
+  ['hub', hubModule],
 ]
 
 export const name = 'composer'
@@ -2748,6 +3341,8 @@ export const Config = Schema.object({
   followup: followupModule.Config,
   voice: voiceModule.Config,
   snippets: snippetsModule.Config,
+  prompts: promptsModule.Config,
+  hub: hubModule.Config,
 })
 
 /**
@@ -2762,9 +3357,15 @@ for (const [key, mod] of MODULES) {
 export function apply(ctx, config) {
   const keys = Object.keys(config ?? {})
   console.info(`[dsh-composer] server apply: host config keys=${keys.length ? keys.join(',') : '(none)'} — merging schema defaults`)
+  // 先算出每个模块的最终生效配置，hub 用它做总览（自己拿不到别人的 config）。
+  const merged = {}
+  for (const [key] of MODULES) {
+    merged[key] = { ...(DEFAULTS.get(key) ?? {}), ...(config?.[key] ?? {}) }
+  }
   for (const [key, mod] of MODULES) {
     try {
-      mod.apply(ctx, { ...(DEFAULTS.get(key) ?? {}), ...(config?.[key] ?? {}) })
+      const own = merged[key]
+      mod.apply(ctx, key === 'hub' ? { ...own, snapshot: merged } : own)
     } catch (error) {
       console.error(`[dsh-composer] server module "${key}" failed:`, error)
     }

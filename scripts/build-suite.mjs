@@ -112,6 +112,22 @@ for (const [key, pkg] of MODULES) {
   iifes.push(`/* ==== module: snippets（手写） ==== */\nconst snippetsModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
   console.log('✓ inline snippets')
 }
+// prompts（手写模块源）同样内联。
+{
+  const src = readFileSync(join(root, 'modules', 'prompts.js'), 'utf8')
+  const { imports, body } = inlineSource(src)
+  importLines.push(...imports)
+  iifes.push(`/* ==== module: prompts（手写） ==== */\nconst promptsModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
+  console.log('✓ inline prompts')
+}
+// hub（手写模块源）同样内联。
+{
+  const src = readFileSync(join(root, 'modules', 'hub.js'), 'utf8')
+  const { imports, body } = inlineSource(src)
+  importLines.push(...imports)
+  iifes.push(`/* ==== module: hub（手写） ==== */\nconst hubModule = (() => {\n${body}\n  return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }\n})()`)
+  console.log('✓ inline hub')
+}
 const allImports = mergeImports(importLines)
 // schemastery 由 glue 使用，保证在列。
 if (!allImports.some((line) => line.includes('@deepseek-ai/schemastery'))) {
@@ -132,6 +148,8 @@ const MODULES = [
   ['followup', followupModule],
   ['voice', voiceModule],
   ['snippets', snippetsModule],
+  ['prompts', promptsModule],
+  ['hub', hubModule],
 ]
 
 export const name = 'composer'
@@ -145,6 +163,8 @@ export const Config = Schema.object({
   followup: followupModule.Config,
   voice: voiceModule.Config,
   snippets: snippetsModule.Config,
+  prompts: promptsModule.Config,
+  hub: hubModule.Config,
 })
 
 /**
@@ -159,9 +179,15 @@ for (const [key, mod] of MODULES) {
 export function apply(ctx, config) {
   const keys = Object.keys(config ?? {})
   console.info(\`[dsh-composer] server apply: host config keys=\${keys.length ? keys.join(',') : '(none)'} — merging schema defaults\`)
+  // 先算出每个模块的最终生效配置，hub 用它做总览（自己拿不到别人的 config）。
+  const merged = {}
+  for (const [key] of MODULES) {
+    merged[key] = { ...(DEFAULTS.get(key) ?? {}), ...(config?.[key] ?? {}) }
+  }
   for (const [key, mod] of MODULES) {
     try {
-      mod.apply(ctx, { ...(DEFAULTS.get(key) ?? {}), ...(config?.[key] ?? {}) })
+      const own = merged[key]
+      mod.apply(ctx, key === 'hub' ? { ...own, snapshot: merged } : own)
     } catch (error) {
       console.error(\`[dsh-composer] server module "\${key}" failed:\`, error)
     }
@@ -217,6 +243,8 @@ for (const [key, pkg, factory] of MODULES) {
   console.log(`✓ client ${factory}`)
 }
 clientFiles.push(readFileSync(join(root, 'modules', 'snippets.client.js'), 'utf8'))
+clientFiles.push(readFileSync(join(root, 'modules', 'prompts.client.js'), 'utf8'))
+clientFiles.push(readFileSync(join(root, 'modules', 'hub.client.js'), 'utf8'))
 
 const glue = `/* dsh-composer 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
  * 本文件由 scripts/build-suite.mjs 生成（模块工厂内联 + 下方 glue）；勿手改模块工厂。 */
@@ -233,6 +261,8 @@ window.__ModuleLoader__.load({
       ['followup', createFollowupClient],
       ['voice', createVoiceClient],
       ['snippets', createSnippetsClient],
+      ['prompts', createPromptsClient],
+      ['hub', createHubClient],
     ]
     // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
     const reportModuleError = (key, when, error) => {
@@ -266,4 +296,5 @@ window.__ModuleLoader__.load({
 })
 `
 writeFileSync(join(root, 'client.js'), glue)
-console.log(`✓ client.js (${glue.length} bytes, 6 modules)`)
+const clientModuleCount = (glue.match(/\['\w+', create\w+\]/g) ?? []).length
+console.log(`✓ client.js (${glue.length} bytes, ${clientModuleCount} modules)`)
