@@ -2,6 +2,17 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.3] - 2026-11-01
+
+### 修复：followup chips 流式回合不实时渲染（自 dsh-followup 0.3.4 再生成）
+
+- turn-tail 组件的 `isLatestTurn` effect 把 `boxRef.current` 捕获进闭包，
+  流式重渲染重建回合尾容器后旧节点脱离 DOM，`contains` 恒 false——POST 与
+  渲染都被挡，刷新才恢复。check() 改为每次现读 ref（真机四轮 CUA 实测：
+  修复前两轮失败、修复后实时渲染 + 点 chip 填草稿全通过）。
+- 客户端关键决策点 diag 落盘（snippets-debug.log 的 `followup:` 行）。
+- 同轮真机验证：voice 模块叠加层在官方语音录音态正常出现/退出。
+
 ## [0.3.2] - 2026-11-01
 
 ### 修复：enhance /rewrite 请求期 "cannot get property \"llm\" without inject"
