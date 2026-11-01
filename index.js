@@ -1,11 +1,11 @@
-/* dsh-composer 入口：零依赖探针（由 scripts/build-suite.mjs 生成；勿手改）。
+/* dsh-superinput 入口：零依赖探针（由 scripts/build-suite.mjs 生成；勿手改）。
  * 静态 import 的失败发生在本文件第一条语句之前（宿主静默），所以核心代码
  * 全部放在 server.js 由这里动态加载——成败都会留下取证记录。 */
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-const DIAG = join(homedir(), '.dsh', 'composer-debug.log')
+const DIAG = join(homedir(), '.dsh', 'superinput-debug.log')
 const trace = (line) => {
   try {
     mkdirSync(dirname(DIAG), { recursive: true })

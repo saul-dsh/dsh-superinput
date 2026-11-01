@@ -1,11 +1,11 @@
-/* dsh-composer · prompts 模块客户端：模板库入口 + 面板。 */
+/* dsh-superinput · prompts 模块客户端：模板库入口 + 面板。 */
 function createPromptsClient(require) {
   const React = require('react')
   const { createPortal } = require('react-dom')
   const h = React.createElement
 
-  const STYLE_ID = 'dsh-composer-prompts-style'
-  const ENDPOINT = '/api/dsh-composer/prompts'
+  const STYLE_ID = 'dsh-superinput-prompts-style'
+  const ENDPOINT = '/api/dsh-superinput/prompts'
 
   const CSS = `
 .dsh-cp-btn {
@@ -308,7 +308,7 @@ function createPromptsClient(require) {
       ensureStyle()
       ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
         name: 'conversation.composer.dock',
-        id: 'dsh-composer-prompts-btn',
+        id: 'dsh-superinput-prompts-btn',
         order: 4,
       }, PromptsButton))
     },

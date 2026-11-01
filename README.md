@@ -1,15 +1,17 @@
-# dsh-composer
+# dsh-superinput
 
-dsh（DeepSeek Harness）**超级输入框套件**：一个插件，六个输入区模块，模块级失败隔离。
+dsh（DeepSeek Harness）**超级输入框套件**：一个插件，八个输入区模块，模块级失败隔离。
 
 | 模块 | 功能 | 来源 |
 |---|---|---|
-| **cost** | 费用引擎：状态行费用 pill、官方用量旁的费用按钮+弹卡、设置页统计/预算/导出、历史回填、官方价格同步、汇率自动刷新 | 原 dsh-cost |
+| **cost** | 费用引擎：状态行费用 pill、官方用量旁的费用按钮+弹卡、月底预测、设置页统计/预算/导出、历史回填、官方价格同步、汇率自动刷新 | 原 dsh-cost |
 | **picker** | 模型选择器接管 + 推理强度滑条 | 原 dsh-power-picker |
 | **enhancer** | 提示词增强按钮 | 原 dsh-prompt-enhancer |
 | **followup** | 回合尾跟进建议 chips | 原 dsh-followup |
 | **voice** | 语音输入 | 原 dsh-siri-voice |
 | **snippets** | 片段管理器：自动捕获窗口内复制 → 收藏/搜索/点击插入草稿 | 新模块 |
+| **prompts** | 提示词模板库：手动保存常用模板，{{变量}} 占位符插入 | 新模块 |
+| **hub** | 设置总览：各模块生效配置聚合展示 + 运行时调节 | 新模块 |
 
 `dsh-compaction-control` 不在套件内（宿主配置补丁层 + /compact 命令桥，保持独立插件）。
 
@@ -25,7 +27,7 @@ dsh（DeepSeek Harness）**超级输入框套件**：一个插件，六个输入
 dsh plugin --profile desktop add <本目录绝对路径>
 ```
 
-从五个独立插件迁移：先装套件、确认 bundles 里有 `dsh-composer`、重启验证，再移除旧插件（避免同槽位双注册冲突）。装完完整重启 dsh。
+从五个独立插件迁移：先装套件、确认 bundles 里有 `dsh-superinput`、重启验证，再移除旧插件（避免同槽位双注册冲突）。装完完整重启 dsh。
 
 ## 上游更新
 

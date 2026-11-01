@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dsh-composer 套件生成器：从五个独立插件机械搬迁模块代码。
+ * dsh-superinput 套件生成器：从五个独立插件机械搬迁模块代码。
  *
  * 服务端：**单文件内联**——宿主 interception loader 对 link 包内部的相对
  * 导入没有先例（五个旧插件都是自包含单文件；套件首版因相对导入静默不被
@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = dirname(dirname(fileURLToPath(import.meta.url))) // packages/dsh-composer
+const root = dirname(dirname(fileURLToPath(import.meta.url))) // packages/dsh-superinput
 const pkgRoot = join(root, '..')
 
 /** key → [包目录, 客户端工厂名] */
@@ -134,7 +134,7 @@ if (!allImports.some((line) => line.includes('@deepseek-ai/schemastery'))) {
   allImports.unshift("import Schema from '@deepseek-ai/schemastery'")
 }
 
-const server = `/* dsh-composer 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
+const server = `/* dsh-superinput 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
  * 入口拆分：index.js 是零依赖探针（先 trace 再动态 import 本文件并捕获失败）——
  * 顶层静态 import 的失败发生在入口任何语句之前，静默且永远取不到证据。 */
 ${allImports.join('\n')}
@@ -152,7 +152,7 @@ const MODULES = [
   ['hub', hubModule],
 ]
 
-export const name = 'composer'
+export const name = 'superinput'
 
 export const inject = [...new Set(MODULES.flatMap(([, mod]) => mod.inject ?? []))]
 
@@ -178,7 +178,7 @@ for (const [key, mod] of MODULES) {
 
 export function apply(ctx, config) {
   const keys = Object.keys(config ?? {})
-  console.info(\`[dsh-composer] server apply: host config keys=\${keys.length ? keys.join(',') : '(none)'} — merging schema defaults\`)
+  console.info(\`[dsh-superinput] server apply: host config keys=\${keys.length ? keys.join(',') : '(none)'} — merging schema defaults\`)
   // 先算出每个模块的最终生效配置，hub 用它做总览（自己拿不到别人的 config）。
   const merged = {}
   for (const [key] of MODULES) {
@@ -189,7 +189,7 @@ export function apply(ctx, config) {
       const own = merged[key]
       mod.apply(ctx, key === 'hub' ? { ...own, snapshot: merged } : own)
     } catch (error) {
-      console.error(\`[dsh-composer] server module "\${key}" failed:\`, error)
+      console.error(\`[dsh-superinput] server module "\${key}" failed:\`, error)
     }
   }
 }
@@ -197,14 +197,14 @@ export function apply(ctx, config) {
 export default { name, Config, apply }
 `
 
-const entry = `/* dsh-composer 入口：零依赖探针（由 scripts/build-suite.mjs 生成；勿手改）。
+const entry = `/* dsh-superinput 入口：零依赖探针（由 scripts/build-suite.mjs 生成；勿手改）。
  * 静态 import 的失败发生在本文件第一条语句之前（宿主静默），所以核心代码
  * 全部放在 server.js 由这里动态加载——成败都会留下取证记录。 */
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-const DIAG = join(homedir(), '.dsh', 'composer-debug.log')
+const DIAG = join(homedir(), '.dsh', 'superinput-debug.log')
 const trace = (line) => {
   try {
     mkdirSync(dirname(DIAG), { recursive: true })
@@ -246,13 +246,13 @@ clientFiles.push(readFileSync(join(root, 'modules', 'snippets.client.js'), 'utf8
 clientFiles.push(readFileSync(join(root, 'modules', 'prompts.client.js'), 'utf8'))
 clientFiles.push(readFileSync(join(root, 'modules', 'hub.client.js'), 'utf8'))
 
-const glue = `/* dsh-composer 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
+const glue = `/* dsh-superinput 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
  * 本文件由 scripts/build-suite.mjs 生成（模块工厂内联 + 下方 glue）；勿手改模块工厂。 */
 
 ${clientFiles.join('\n')}
 
 window.__ModuleLoader__.load({
-  id: 'dsh-composer',
+  id: 'dsh-superinput',
   factory(require) {
     const defs = [
       ['cost', createCostClient],
@@ -266,9 +266,9 @@ window.__ModuleLoader__.load({
     ]
     // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
     const reportModuleError = (key, when, error) => {
-      console.error(\`[dsh-composer] client module "\${key}" \${when}:\`, error)
+      console.error(\`[dsh-superinput] client module "\${key}" \${when}:\`, error)
       try {
-        void fetch('/api/dsh-composer/snippets/diag', {
+        void fetch('/api/dsh-superinput/snippets/diag', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ message: \`client module "\${key}" \${when}: \${String(error?.stack ?? error).slice(0, 400)}\` }),
@@ -280,7 +280,7 @@ window.__ModuleLoader__.load({
       try { modules.push([key, create(require)]) }
       catch (error) { reportModuleError(key, 'factory failed', error) }
     }
-    console.info('[dsh-composer] client active:', modules.map(([key]) => key).join('+'))
+    console.info('[dsh-superinput] client active:', modules.map(([key]) => key).join('+'))
     return {
       // 各模块 client 的 inject 并集：picker 需要 sessions/remote/modelDirectories
       // 等，只声明 slots 会让它在 apply 时报 cannot get property without inject。

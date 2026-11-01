@@ -1,10 +1,10 @@
 /**
- * dsh-composer · prompts 模块（提示词模板库）
+ * dsh-superinput · prompts 模块（提示词模板库）
  *
  * 和 snippets 互补：snippets 自动捕获窗口内复制，prompts 是手动保存的常用模板。
  * 支持 {{变量}} 占位符，插入时由前端弹窗填值；服务端只存原文，不做替换。
  *
- * 存储 ~/.dsh/storages/dsh-composer/prompts.json（结构 { items: [...] }）。
+ * 存储 ~/.dsh/storages/dsh-superinput/prompts.json（结构 { items: [...] }）。
  */
 import Schema from '@deepseek-ai/schemastery'
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs'
@@ -14,7 +14,7 @@ import { join } from 'node:path'
 
 export const inject = []
 
-const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
 const STORE_PATH = join(STORE_DIR, 'prompts.json')
 
 export const Config = Schema.object({
@@ -41,7 +41,7 @@ function createStore(maxItems) {
       renameSync(tmp, STORE_PATH)
       dirty = false
     } catch (error) {
-      console.error('[dsh-composer] prompts flush failed:', error?.message ?? error)
+      console.error('[dsh-superinput] prompts flush failed:', error?.message ?? error)
     }
   }
 
@@ -122,7 +122,7 @@ export function apply(ctx, config) {
 
   // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
   const SETTINGS_KEYS = ['maxItems']
-  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'prompts.settings.json')
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-superinput', 'prompts.settings.json')
   try {
     const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
     for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
@@ -145,19 +145,19 @@ export function apply(ctx, config) {
 
   const store = createStore(Math.max(20, Math.round(live.maxItems ?? 500)))
   store.load()
-  ctx.effect(() => store.dispose(), 'dsh-composer: prompts store')
+  ctx.effect(() => store.dispose(), 'dsh-superinput: prompts store')
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
-      path: '/api/dsh-composer/prompts',
+      path: '/api/dsh-superinput/prompts',
       handler: async (req, res) => {
         const send = (status, body) => {
           res.statusCode = status
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(body))
         }
-        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/prompts/, '')
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-superinput\/prompts/, '')
         const readBody = async () => {
           let body = ''
           for await (const chunk of req) body += chunk
@@ -200,7 +200,7 @@ export function apply(ctx, config) {
         }
         send(404, { error: 'not-found' })
       },
-    }), 'dsh-composer: prompts endpoints')
+    }), 'dsh-superinput: prompts endpoints')
   })
 }
 

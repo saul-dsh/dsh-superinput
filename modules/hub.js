@@ -1,5 +1,5 @@
 /**
- * dsh-composer · hub 模块（设置总览）
+ * dsh-superinput · hub 模块（设置总览）
  *
  * 把各模块的**最终生效配置**聚合成一张表，供设置页展示。
  *
@@ -8,7 +8,7 @@
  * 重启后由模块自己回放。这里只回答「现在是什么状态」。
  *
  * 数据来源两层：apply 时聚合层塞进来的 snapshot（defaults 与宿主配置合并），
- * 叠加各模块落盘的显式改动（<storages>/dsh-composer/<mod>.settings.json）——
+ * 叠加各模块落盘的显式改动（<storages>/dsh-superinput/<mod>.settings.json）——
  * 只吐快照会在重启后与实际运行值不符（快照不知道回放）。
  */
 import Schema from '@deepseek-ai/schemastery'
@@ -34,7 +34,7 @@ const PERSISTED_FILES = [
 
 function loadPersisted() {
   const persisted = {}
-  const dir = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+  const dir = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
   for (const [mod, file] of PERSISTED_FILES) {
     try {
       const saved = JSON.parse(readFileSync(join(dir, file), 'utf8'))
@@ -51,14 +51,14 @@ export function apply(ctx, config) {
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
-      path: '/api/dsh-composer/hub',
+      path: '/api/dsh-superinput/hub',
       handler: async (req, res) => {
         const send = (status, body) => {
           res.statusCode = status
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(body))
         }
-        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/hub/, '')
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-superinput\/hub/, '')
         if (path === '/state' && req.method === 'GET') {
           const persisted = loadPersisted()
           const modules = {}
@@ -72,7 +72,7 @@ export function apply(ctx, config) {
         }
         send(404, { error: 'not-found' })
       },
-    }), 'dsh-composer: hub endpoint')
+    }), 'dsh-superinput: hub endpoint')
   })
 }
 

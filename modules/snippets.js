@@ -1,8 +1,8 @@
 /**
- * dsh-composer · snippets 模块（片段管理器）
+ * dsh-superinput · snippets 模块（片段管理器）
  *
  * 捕获 dsh 窗口内的复制（客户端 copy 事件上报），持久化到
- * ~/.dsh/storages/dsh-composer/snippets.json；客户端 dock 按钮弹官方
+ * ~/.dsh/storages/dsh-superinput/snippets.json；客户端 dock 按钮弹官方
  * 样式面板：搜索 / 收藏 / 点击插入草稿 / 删除。能力边界：只能看见
  * dsh 窗口内的复制，宿主没有系统剪贴板桥，全局监控做不到。
  *
@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path'
 
 export const inject = []
 
-const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
 const STORE_PATH = join(STORE_DIR, 'snippets.json')
 
 export const Config = Schema.object({
@@ -46,7 +46,7 @@ function createStore(maxItems) {
       writeFileSync(tmp, JSON.stringify(state), 'utf8')
       renameSync(tmp, STORE_PATH)
       dirty = false
-    } catch (error) { console.error('[dsh-composer] snippets flush failed:', error?.message ?? error) }
+    } catch (error) { console.error('[dsh-superinput] snippets flush failed:', error?.message ?? error) }
   }
   const schedule = () => {
     dirty = true
@@ -107,7 +107,7 @@ export function apply(ctx, config) {
 
   // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
   const SETTINGS_KEYS = ['captureEnabled', 'maxItems', 'minChars']
-  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'snippets.settings.json')
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-superinput', 'snippets.settings.json')
   try {
     const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
     for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
@@ -130,21 +130,21 @@ export function apply(ctx, config) {
 
   const store = createStore(Math.max(20, Math.round(live.maxItems ?? 200)))
   store.load()
-  ctx.effect(() => store.dispose(), 'dsh-composer: snippets store')
+  ctx.effect(() => store.dispose(), 'dsh-superinput: snippets store')
   const minChars = Math.max(1, Math.round(live.minChars ?? 2))
   const cap = (text) => (String(text ?? '').length > 100_000 ? String(text).slice(0, 100_000) : String(text ?? ''))
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
-      path: '/api/dsh-composer/snippets',
+      path: '/api/dsh-superinput/snippets',
       handler: async (req, res) => {
         const send = (status, body) => {
           res.statusCode = status
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(body))
         }
-        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/snippets/, '')
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-superinput\/snippets/, '')
         const readBody = async () => {
           let body = ''
           for await (const chunk of req) body += chunk
@@ -208,7 +208,7 @@ export function apply(ctx, config) {
         }
         send(404, { error: 'not-found' })
       },
-    }), 'dsh-composer: snippets endpoints')
+    }), 'dsh-superinput: snippets endpoints')
   })
 }
 

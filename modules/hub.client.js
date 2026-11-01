@@ -1,10 +1,10 @@
-/* dsh-composer · hub 模块客户端：设置页「输入栏」总览 + 运行时调节。 */
+/* dsh-superinput · hub 模块客户端：设置页「输入栏」总览 + 运行时调节。 */
 function createHubClient(require) {
   const React = require('react')
   const h = React.createElement
 
-  const STYLE_ID = 'dsh-composer-hub-style'
-  const ENDPOINT = '/api/dsh-composer/hub'
+  const STYLE_ID = 'dsh-superinput-hub-style'
+  const ENDPOINT = '/api/dsh-superinput/hub'
 
   const CSS = `
 .dsh-hub { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 24px; font-size: 13px; color: var(--dsw-alias-label-primary); }
@@ -91,7 +91,7 @@ function createHubClient(require) {
     {
       key: 'snippets',
       label: '片段管理',
-      endpoint: '/api/dsh-composer/snippets/settings',
+      endpoint: '/api/dsh-superinput/snippets/settings',
       fields: [
         { key: 'captureEnabled', label: '自动捕获', type: 'bool' },
         { key: 'maxItems', label: '上限', type: 'number', min: 20, max: 2000 },
@@ -101,7 +101,7 @@ function createHubClient(require) {
     {
       key: 'prompts',
       label: '模板库',
-      endpoint: '/api/dsh-composer/prompts/settings',
+      endpoint: '/api/dsh-superinput/prompts/settings',
       fields: [
         { key: 'maxItems', label: '上限', type: 'number', min: 20, max: 5000 },
       ],
@@ -219,7 +219,7 @@ function createHubClient(require) {
       ensureStyle()
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
-        id: 'dsh-composer-hub',
+        id: 'dsh-superinput-hub',
         order: 29,
         label: '输入栏',
       }, HubSection))

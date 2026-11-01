@@ -1,11 +1,11 @@
-/* dsh-composer · snippets 模块客户端：copy 捕获 + dock 入口 + 片段面板。 */
+/* dsh-superinput · snippets 模块客户端：copy 捕获 + dock 入口 + 片段面板。 */
 function createSnippetsClient(require) {
   const React = require('react')
   const { createPortal } = require('react-dom')
   const h = React.createElement
 
-  const STYLE_ID = 'dsh-composer-snippets-style'
-  const ENDPOINT = '/api/dsh-composer/snippets'
+  const STYLE_ID = 'dsh-superinput-snippets-style'
+  const ENDPOINT = '/api/dsh-superinput/snippets'
   const MAX_TEXT = 100_000
 
   const CSS = `
@@ -248,7 +248,7 @@ function createSnippetsClient(require) {
           body: JSON.stringify({ message: `boundary: ${String(error?.message ?? error).slice(0, 200)} | stack: ${String(info?.componentStack ?? '').slice(0, 200)}` }),
         }).catch(() => {})
       } catch { /* ignore */ }
-      console.error('[dsh-composer] snippets crashed:', error)
+      console.error('[dsh-superinput] snippets crashed:', error)
     }
     render() {
       if (this.state.crashed) return null
@@ -278,13 +278,13 @@ function createSnippetsClient(require) {
       if (typeof document !== 'undefined') startCapture()
       ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
         name: 'conversation.composer.dock',
-        id: 'dsh-composer-snippets-btn',
+        id: 'dsh-superinput-snippets-btn',
         order: 3,
       }, SnippetsButton))
       // 草稿桥挂 input.dock（props 注入 see SnippetsDraftBridge 注释）。
       ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
         name: 'conversation.input.dock',
-        id: 'dsh-composer-snippets-bridge',
+        id: 'dsh-superinput-snippets-bridge',
         order: 95,
       }, SnippetsDraftBridge))
     },

@@ -1,4 +1,4 @@
-/* dsh-composer 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
+/* dsh-superinput 客户端：单 __ModuleLoader__ 入口，内部逐模块装配。
  * 本文件由 scripts/build-suite.mjs 生成（模块工厂内联 + 下方 glue）；勿手改模块工厂。 */
 
 /* 由 scripts/build-suite.mjs 从 dsh-cost/client.js 机械生成；勿手改。 */
@@ -4159,14 +4159,14 @@ svg[viewBox="0 0 640 40"] { visibility: hidden !important; }
     }
 }
 
-/* dsh-composer · snippets 模块客户端：copy 捕获 + dock 入口 + 片段面板。 */
+/* dsh-superinput · snippets 模块客户端：copy 捕获 + dock 入口 + 片段面板。 */
 function createSnippetsClient(require) {
   const React = require('react')
   const { createPortal } = require('react-dom')
   const h = React.createElement
 
-  const STYLE_ID = 'dsh-composer-snippets-style'
-  const ENDPOINT = '/api/dsh-composer/snippets'
+  const STYLE_ID = 'dsh-superinput-snippets-style'
+  const ENDPOINT = '/api/dsh-superinput/snippets'
   const MAX_TEXT = 100_000
 
   const CSS = `
@@ -4409,7 +4409,7 @@ function createSnippetsClient(require) {
           body: JSON.stringify({ message: `boundary: ${String(error?.message ?? error).slice(0, 200)} | stack: ${String(info?.componentStack ?? '').slice(0, 200)}` }),
         }).catch(() => {})
       } catch { /* ignore */ }
-      console.error('[dsh-composer] snippets crashed:', error)
+      console.error('[dsh-superinput] snippets crashed:', error)
     }
     render() {
       if (this.state.crashed) return null
@@ -4439,27 +4439,27 @@ function createSnippetsClient(require) {
       if (typeof document !== 'undefined') startCapture()
       ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
         name: 'conversation.composer.dock',
-        id: 'dsh-composer-snippets-btn',
+        id: 'dsh-superinput-snippets-btn',
         order: 3,
       }, SnippetsButton))
       // 草稿桥挂 input.dock（props 注入 see SnippetsDraftBridge 注释）。
       ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
         name: 'conversation.input.dock',
-        id: 'dsh-composer-snippets-bridge',
+        id: 'dsh-superinput-snippets-bridge',
         order: 95,
       }, SnippetsDraftBridge))
     },
   }
 }
 
-/* dsh-composer · prompts 模块客户端：模板库入口 + 面板。 */
+/* dsh-superinput · prompts 模块客户端：模板库入口 + 面板。 */
 function createPromptsClient(require) {
   const React = require('react')
   const { createPortal } = require('react-dom')
   const h = React.createElement
 
-  const STYLE_ID = 'dsh-composer-prompts-style'
-  const ENDPOINT = '/api/dsh-composer/prompts'
+  const STYLE_ID = 'dsh-superinput-prompts-style'
+  const ENDPOINT = '/api/dsh-superinput/prompts'
 
   const CSS = `
 .dsh-cp-btn {
@@ -4762,20 +4762,20 @@ function createPromptsClient(require) {
       ensureStyle()
       ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
         name: 'conversation.composer.dock',
-        id: 'dsh-composer-prompts-btn',
+        id: 'dsh-superinput-prompts-btn',
         order: 4,
       }, PromptsButton))
     },
   }
 }
 
-/* dsh-composer · hub 模块客户端：设置页「输入栏」总览 + 运行时调节。 */
+/* dsh-superinput · hub 模块客户端：设置页「输入栏」总览 + 运行时调节。 */
 function createHubClient(require) {
   const React = require('react')
   const h = React.createElement
 
-  const STYLE_ID = 'dsh-composer-hub-style'
-  const ENDPOINT = '/api/dsh-composer/hub'
+  const STYLE_ID = 'dsh-superinput-hub-style'
+  const ENDPOINT = '/api/dsh-superinput/hub'
 
   const CSS = `
 .dsh-hub { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 24px; font-size: 13px; color: var(--dsw-alias-label-primary); }
@@ -4862,7 +4862,7 @@ function createHubClient(require) {
     {
       key: 'snippets',
       label: '片段管理',
-      endpoint: '/api/dsh-composer/snippets/settings',
+      endpoint: '/api/dsh-superinput/snippets/settings',
       fields: [
         { key: 'captureEnabled', label: '自动捕获', type: 'bool' },
         { key: 'maxItems', label: '上限', type: 'number', min: 20, max: 2000 },
@@ -4872,7 +4872,7 @@ function createHubClient(require) {
     {
       key: 'prompts',
       label: '模板库',
-      endpoint: '/api/dsh-composer/prompts/settings',
+      endpoint: '/api/dsh-superinput/prompts/settings',
       fields: [
         { key: 'maxItems', label: '上限', type: 'number', min: 20, max: 5000 },
       ],
@@ -4990,7 +4990,7 @@ function createHubClient(require) {
       ensureStyle()
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
-        id: 'dsh-composer-hub',
+        id: 'dsh-superinput-hub',
         order: 29,
         label: '输入栏',
       }, HubSection))
@@ -5000,7 +5000,7 @@ function createHubClient(require) {
 
 
 window.__ModuleLoader__.load({
-  id: 'dsh-composer',
+  id: 'dsh-superinput',
   factory(require) {
     const defs = [
       ['cost', createCostClient],
@@ -5014,9 +5014,9 @@ window.__ModuleLoader__.load({
     ]
     // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
     const reportModuleError = (key, when, error) => {
-      console.error(`[dsh-composer] client module "${key}" ${when}:`, error)
+      console.error(`[dsh-superinput] client module "${key}" ${when}:`, error)
       try {
-        void fetch('/api/dsh-composer/snippets/diag', {
+        void fetch('/api/dsh-superinput/snippets/diag', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ message: `client module "${key}" ${when}: ${String(error?.stack ?? error).slice(0, 400)}` }),
@@ -5028,7 +5028,7 @@ window.__ModuleLoader__.load({
       try { modules.push([key, create(require)]) }
       catch (error) { reportModuleError(key, 'factory failed', error) }
     }
-    console.info('[dsh-composer] client active:', modules.map(([key]) => key).join('+'))
+    console.info('[dsh-superinput] client active:', modules.map(([key]) => key).join('+'))
     return {
       // 各模块 client 的 inject 并集：picker 需要 sessions/remote/modelDirectories
       // 等，只声明 slots 会让它在 apply 时报 cannot get property without inject。

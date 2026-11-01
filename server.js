@@ -1,4 +1,4 @@
-/* dsh-composer 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
+/* dsh-superinput 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
  * 入口拆分：index.js 是零依赖探针（先 trace 再动态 import 本文件并捕获失败）——
  * 顶层静态 import 的失败发生在入口任何语句之前，静默且永远取不到证据。 */
 import Schema from '@deepseek-ai/schemastery'
@@ -2812,10 +2812,10 @@ const Config = Schema.object({ enabled: Schema.boolean().default(true).descripti
 /* ==== module: snippets（手写） ==== */
 const snippetsModule = (() => {
 /**
- * dsh-composer · snippets 模块（片段管理器）
+ * dsh-superinput · snippets 模块（片段管理器）
  *
  * 捕获 dsh 窗口内的复制（客户端 copy 事件上报），持久化到
- * ~/.dsh/storages/dsh-composer/snippets.json；客户端 dock 按钮弹官方
+ * ~/.dsh/storages/dsh-superinput/snippets.json；客户端 dock 按钮弹官方
  * 样式面板：搜索 / 收藏 / 点击插入草稿 / 删除。能力边界：只能看见
  * dsh 窗口内的复制，宿主没有系统剪贴板桥，全局监控做不到。
  *
@@ -2830,7 +2830,7 @@ const snippetsModule = (() => {
 
 const moduleInject = []
 
-const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
 const STORE_PATH = join(STORE_DIR, 'snippets.json')
 
 const Config = Schema.object({
@@ -2859,7 +2859,7 @@ function createStore(maxItems) {
       writeFileSync(tmp, JSON.stringify(state), 'utf8')
       renameSync(tmp, STORE_PATH)
       dirty = false
-    } catch (error) { console.error('[dsh-composer] snippets flush failed:', error?.message ?? error) }
+    } catch (error) { console.error('[dsh-superinput] snippets flush failed:', error?.message ?? error) }
   }
   const schedule = () => {
     dirty = true
@@ -2920,7 +2920,7 @@ function apply(ctx, config) {
 
   // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
   const SETTINGS_KEYS = ['captureEnabled', 'maxItems', 'minChars']
-  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'snippets.settings.json')
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-superinput', 'snippets.settings.json')
   try {
     const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
     for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
@@ -2943,21 +2943,21 @@ function apply(ctx, config) {
 
   const store = createStore(Math.max(20, Math.round(live.maxItems ?? 200)))
   store.load()
-  ctx.effect(() => store.dispose(), 'dsh-composer: snippets store')
+  ctx.effect(() => store.dispose(), 'dsh-superinput: snippets store')
   const minChars = Math.max(1, Math.round(live.minChars ?? 2))
   const cap = (text) => (String(text ?? '').length > 100_000 ? String(text).slice(0, 100_000) : String(text ?? ''))
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
-      path: '/api/dsh-composer/snippets',
+      path: '/api/dsh-superinput/snippets',
       handler: async (req, res) => {
         const send = (status, body) => {
           res.statusCode = status
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(body))
         }
-        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/snippets/, '')
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-superinput\/snippets/, '')
         const readBody = async () => {
           let body = ''
           for await (const chunk of req) body += chunk
@@ -3021,7 +3021,7 @@ function apply(ctx, config) {
         }
         send(404, { error: 'not-found' })
       },
-    }), 'dsh-composer: snippets endpoints')
+    }), 'dsh-superinput: snippets endpoints')
   })
 }
   return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }
@@ -3030,12 +3030,12 @@ function apply(ctx, config) {
 /* ==== module: prompts（手写） ==== */
 const promptsModule = (() => {
 /**
- * dsh-composer · prompts 模块（提示词模板库）
+ * dsh-superinput · prompts 模块（提示词模板库）
  *
  * 和 snippets 互补：snippets 自动捕获窗口内复制，prompts 是手动保存的常用模板。
  * 支持 {{变量}} 占位符，插入时由前端弹窗填值；服务端只存原文，不做替换。
  *
- * 存储 ~/.dsh/storages/dsh-composer/prompts.json（结构 { items: [...] }）。
+ * 存储 ~/.dsh/storages/dsh-superinput/prompts.json（结构 { items: [...] }）。
  */
 
 
@@ -3045,7 +3045,7 @@ const promptsModule = (() => {
 
 const moduleInject = []
 
-const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
 const STORE_PATH = join(STORE_DIR, 'prompts.json')
 
 const Config = Schema.object({
@@ -3072,7 +3072,7 @@ function createStore(maxItems) {
       renameSync(tmp, STORE_PATH)
       dirty = false
     } catch (error) {
-      console.error('[dsh-composer] prompts flush failed:', error?.message ?? error)
+      console.error('[dsh-superinput] prompts flush failed:', error?.message ?? error)
     }
   }
 
@@ -3153,7 +3153,7 @@ function apply(ctx, config) {
 
   // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
   const SETTINGS_KEYS = ['maxItems']
-  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-composer', 'prompts.settings.json')
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-superinput', 'prompts.settings.json')
   try {
     const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
     for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
@@ -3176,19 +3176,19 @@ function apply(ctx, config) {
 
   const store = createStore(Math.max(20, Math.round(live.maxItems ?? 500)))
   store.load()
-  ctx.effect(() => store.dispose(), 'dsh-composer: prompts store')
+  ctx.effect(() => store.dispose(), 'dsh-superinput: prompts store')
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
-      path: '/api/dsh-composer/prompts',
+      path: '/api/dsh-superinput/prompts',
       handler: async (req, res) => {
         const send = (status, body) => {
           res.statusCode = status
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(body))
         }
-        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/prompts/, '')
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-superinput\/prompts/, '')
         const readBody = async () => {
           let body = ''
           for await (const chunk of req) body += chunk
@@ -3231,7 +3231,7 @@ function apply(ctx, config) {
         }
         send(404, { error: 'not-found' })
       },
-    }), 'dsh-composer: prompts endpoints')
+    }), 'dsh-superinput: prompts endpoints')
   })
 }
   return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }
@@ -3240,7 +3240,7 @@ function apply(ctx, config) {
 /* ==== module: hub（手写） ==== */
 const hubModule = (() => {
 /**
- * dsh-composer · hub 模块（设置总览）
+ * dsh-superinput · hub 模块（设置总览）
  *
  * 把各模块的**最终生效配置**聚合成一张表，供设置页展示。
  *
@@ -3249,7 +3249,7 @@ const hubModule = (() => {
  * 重启后由模块自己回放。这里只回答「现在是什么状态」。
  *
  * 数据来源两层：apply 时聚合层塞进来的 snapshot（defaults 与宿主配置合并），
- * 叠加各模块落盘的显式改动（<storages>/dsh-composer/<mod>.settings.json）——
+ * 叠加各模块落盘的显式改动（<storages>/dsh-superinput/<mod>.settings.json）——
  * 只吐快照会在重启后与实际运行值不符（快照不知道回放）。
  */
 
@@ -3275,7 +3275,7 @@ const PERSISTED_FILES = [
 
 function loadPersisted() {
   const persisted = {}
-  const dir = join(homedir(), '.dsh', 'storages', 'dsh-composer')
+  const dir = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
   for (const [mod, file] of PERSISTED_FILES) {
     try {
       const saved = JSON.parse(readFileSync(join(dir, file), 'utf8'))
@@ -3292,14 +3292,14 @@ function apply(ctx, config) {
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
-      path: '/api/dsh-composer/hub',
+      path: '/api/dsh-superinput/hub',
       handler: async (req, res) => {
         const send = (status, body) => {
           res.statusCode = status
           res.setHeader('content-type', 'application/json')
           res.end(JSON.stringify(body))
         }
-        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-composer\/hub/, '')
+        const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-superinput\/hub/, '')
         if (path === '/state' && req.method === 'GET') {
           const persisted = loadPersisted()
           const modules = {}
@@ -3313,7 +3313,7 @@ function apply(ctx, config) {
         }
         send(404, { error: 'not-found' })
       },
-    }), 'dsh-composer: hub endpoint')
+    }), 'dsh-superinput: hub endpoint')
   })
 }
   return { apply, Config, inject: typeof moduleInject === 'undefined' ? undefined : moduleInject }
@@ -3330,7 +3330,7 @@ const MODULES = [
   ['hub', hubModule],
 ]
 
-export const name = 'composer'
+export const name = 'superinput'
 
 export const inject = [...new Set(MODULES.flatMap(([, mod]) => mod.inject ?? []))]
 
@@ -3356,7 +3356,7 @@ for (const [key, mod] of MODULES) {
 
 export function apply(ctx, config) {
   const keys = Object.keys(config ?? {})
-  console.info(`[dsh-composer] server apply: host config keys=${keys.length ? keys.join(',') : '(none)'} — merging schema defaults`)
+  console.info(`[dsh-superinput] server apply: host config keys=${keys.length ? keys.join(',') : '(none)'} — merging schema defaults`)
   // 先算出每个模块的最终生效配置，hub 用它做总览（自己拿不到别人的 config）。
   const merged = {}
   for (const [key] of MODULES) {
@@ -3367,7 +3367,7 @@ export function apply(ctx, config) {
       const own = merged[key]
       mod.apply(ctx, key === 'hub' ? { ...own, snapshot: merged } : own)
     } catch (error) {
-      console.error(`[dsh-composer] server module "${key}" failed:`, error)
+      console.error(`[dsh-superinput] server module "${key}" failed:`, error)
     }
   }
 }
