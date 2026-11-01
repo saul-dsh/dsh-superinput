@@ -718,6 +718,9 @@ function releaseLedgerLock(path) {
 /* ------------------------------------------------------------------ */
 const moduleInject = []
 
+/** 官方余额查询：host 白名单（安全约束——只允许官方域名，内网/环回不可能出现）。 */
+const BALANCE_HOST = 'api.deepseek.com'
+
 const Config = Schema.object({
   enabled: Schema.boolean().default(true).description('是否启用费用统计'),
   /** 展示汇率（USD → CNY）；金额账本恒存美元，展示时换算。 */
@@ -733,16 +736,20 @@ const Config = Schema.object({
   peakAlertEnabled: Schema.boolean().default(false).description('峰谷切换前提醒'),
   peakAlertLeadMinutes: Schema.number().default(2).description('峰谷切换提前量（分钟，1-30）'),
   peakAlertNotify: Schema.boolean().default(false).description('同时发送系统通知'),
+  /** DeepSeek 开放平台 API Key（选填）：配置后费用弹卡显示官方账户余额。 */
+  apiKey: Schema.string().default('').description('DeepSeek 开放平台 API Key（查官方余额用，可选）'),
 })
 
 function apply(ctx, config) {
   // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
   // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
   const live = { ...config }
+  // 官方余额缓存：10 分钟内直接回缓存；换 key 即失效。
+  let balanceCache = null
   if (!live.enabled) return
 
   // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
-  const SETTINGS_KEYS = ['budgetEnabled', 'budgetAmount', 'budgetPeriod', 'peakAlertEnabled', 'peakAlertNotify', 'peakAlertLeadMinutes', 'exchangeRate']
+  const SETTINGS_KEYS = ['budgetEnabled', 'budgetAmount', 'budgetPeriod', 'peakAlertEnabled', 'peakAlertNotify', 'peakAlertLeadMinutes', 'exchangeRate', 'apiKey']
   const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-cost', 'settings.json')
   try {
     const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
@@ -1043,6 +1050,10 @@ function apply(ctx, config) {
             const value = Number(body.peakAlertLeadMinutes)
             if (Number.isFinite(value)) live.peakAlertLeadMinutes = Math.min(30, Math.max(1, Math.round(value)))
           }
+          if (body.apiKey !== undefined) {
+            live.apiKey = String(body.apiKey ?? '').trim()
+            balanceCache = null // 换 key 立即失效缓存
+          }
           persistSettings()
           send(200, { ok: true })
           return
@@ -1290,6 +1301,33 @@ function apply(ctx, config) {
           return
         }
 
+        // 官方余额（选配 apiKey）：host 白名单写死官方域名，https 证书校验兜底。
+        if (path === '/balance' && req.method === 'GET') {
+          const key = String(live.apiKey ?? '').trim()
+          if (!key) { send(200, { ok: false, reason: 'no-key' }); return }
+          if (balanceCache && Date.now() - balanceCache.at < 600_000) { send(200, balanceCache.data); return }
+          if (BALANCE_HOST !== 'api.deepseek.com') { send(200, { ok: false, reason: 'bad-host' }); return }
+          try {
+            const res = await fetch(`https://${BALANCE_HOST}/user/balance`, {
+              headers: { accept: 'application/json', authorization: `Bearer ${key}`, 'user-agent': 'dsh-cost' },
+              signal: AbortSignal.timeout(8000),
+            })
+            if (!res.ok) throw new Error(`balance ${res.status}`)
+            const data = await res.json()
+            const info = Array.isArray(data.balance_infos) ? data.balance_infos[0] : null
+            const out = info
+              ? { ok: true, currency: info.currency ?? 'CNY', total: String(info.total_balance ?? ''), granted: String(info.granted_balance ?? ''), toppedUp: String(info.topped_up_balance ?? ''), at: Date.now() }
+              : { ok: false, reason: 'empty' }
+            balanceCache = { at: Date.now(), data: out }
+            send(200, out)
+          } catch (error) {
+            const out = { ok: false, reason: String(error?.message ?? error).slice(0, 120) }
+            balanceCache = { at: Date.now(), data: out }
+            send(200, out)
+          }
+          return
+        }
+
         // 汇率手动刷新（自动刷新由每小时定时器执行）。
         if (path === '/fetch-rate' && req.method === 'POST') {
           try {
@@ -1505,6 +1543,7 @@ const enhancerModule = (() => {
 
 
 
+
 /** 排查日志：客户端把拦截决策写到这里，出问题时直接看文件。 */
 const DEBUG_LOG = join(homedir(), '.dsh', 'prompt-enhancer-debug.log')
 
@@ -1539,6 +1578,8 @@ const Config = Schema.object({
   language: Schema.union(['auto', 'zh', 'en']).default('auto').description('输出语言'),
   /** 追加到内置改写规则之后的自定义风格要求（可为空）。 */
   styleHint: Schema.string().default('').description('自定义风格要求（追加到改写规则后）'),
+  /** 增强时把最近一轮会话拼进改写参考：代词/指代（它、这个）能被上下文消解。 */
+  useContext: Schema.boolean().default(false).description('参考最近会话上下文（输入框按钮生效）'),
 })
 
 /* ------------------------------------------------------------------ */
@@ -1624,9 +1665,20 @@ const BASE_RULES = [
   'OUTPUT: only the rewritten prompt text. No commentary, no code fences, no quotes around it.',
 ].join('\n')
 
-function buildMetaPrompt(raw, config, level) {
+function buildMetaPrompt(raw, config, level, contextTurn) {
   const spec = LEVELS[level] ?? LEVELS.high
   const lines = [BASE_RULES, '', spec.rules.join('\n')]
+  // 参考上下文：只用于消解指代、贴合讨论，绝不据此发明新需求。
+  if (config.useContext && contextTurn?.userText && contextTurn?.assistantText) {
+    lines.push(
+      '',
+      'Recent conversation context (the most recent user/assistant turn). Use it ONLY to resolve references (it / that / 上面提到的) and align the rewrite with the ongoing discussion; never invent requirements from it:',
+      '<context>',
+      `User: ${contextTurn.userText.slice(-1200)}`,
+      `Assistant: ${contextTurn.assistantText.slice(-1200)}`,
+      '</context>',
+    )
+  }
   // WorkBuddy 的提示词已内置「跟随输入语言」；这两个配置只用于强制覆盖。
   if (config.language === 'zh') lines.push('', 'OVERRIDE: write the rewritten prompt in Simplified Chinese.')
   else if (config.language === 'en') lines.push('', 'OVERRIDE: write the rewritten prompt in English.')
@@ -1636,6 +1688,56 @@ function buildMetaPrompt(raw, config, level) {
   // 用标签包住原文：即使原文本身长得像指令，也不会和改写规则混在一起。
   lines.push('', 'Raw input:', '<original_prompt>', raw, '</original_prompt>')
   return lines.join('\n')
+}
+
+/* ------------------------------------------------------------------ */
+/* 最近一轮会话捕获（参考上下文用；深度标记模式照搬 followup 模块）      */
+/* ------------------------------------------------------------------ */
+
+const llmDepth = new AsyncLocalStorage()
+const turnCache = new Map()
+const TURN_CACHE_MAX = 24
+const TURN_CACHE_TTL_MS = 10 * 60_000
+
+/** options.messages 里最后一条用户消息的纯文本。 */
+function lastUserTextOf(messages) {
+  if (!Array.isArray(messages)) return ''
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (m?.role !== 'user') continue
+    const blocks = Array.isArray(m.content) ? m.content : []
+    const joined = blocks
+      .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('')
+    if (joined.trim()) return joined.trim()
+  }
+  return ''
+}
+
+function cachedTurnOf(sessionId) {
+  const hit = turnCache.get(sessionId)
+  if (!hit) return null
+  if (Date.now() - hit.at > TURN_CACHE_TTL_MS) { turnCache.delete(sessionId); return null }
+  return hit
+}
+
+function rememberTurn(sessionId, userText, assistantText) {
+  if (!sessionId || !userText || !assistantText || assistantText.trim().length === 0) return
+  const prev = turnCache.get(sessionId)
+  // 同一轮的多步工具链 / 重试续流 userText 相同：助手文本追加累积。
+  const merged = prev && prev.userText === userText
+    ? `${prev.assistantText}\n\n${assistantText}`
+    : assistantText
+  turnCache.set(sessionId, { userText, assistantText: merged.slice(-6000), at: Date.now() })
+  if (turnCache.size > TURN_CACHE_MAX) {
+    let oldestKey = null
+    let oldestAt = Infinity
+    for (const [key, value] of turnCache) {
+      if (value.at < oldestAt) { oldestAt = value.at; oldestKey = key }
+    }
+    if (oldestKey !== null) turnCache.delete(oldestKey)
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1686,7 +1788,7 @@ function cleanModelOutput(text) {
 }
 
 /** 调一次 LLM 做改写；任何失败都抛错，由上层兜底放行。 */
-async function rewriteWithLlm(ctx, route, raw, config, level, outerSignal) {
+async function rewriteWithLlm(ctx, route, raw, config, level, outerSignal, contextTurn) {
   const spec = LEVELS[level] ?? LEVELS.high
   // 超时与外部取消（用户中断 pre-step）收敛到同一个内部 signal，
   // 底层流会被及时中断，不会在后台继续烧 token。
@@ -1715,7 +1817,7 @@ async function rewriteWithLlm(ctx, route, raw, config, level, outerSignal) {
   const iterator = ctx.llm.stream({
     provider: route.provider,
     model: route.model,
-    messages: [{ role: 'user', content: [{ type: 'text', text: buildMetaPrompt(raw, config, level) }] }],
+    messages: [{ role: 'user', content: [{ type: 'text', text: buildMetaPrompt(raw, config, level, contextTurn) }] }],
     maxTokens: spec.maxTokens,
     signal: controller.signal,
   })[Symbol.asyncIterator]()
@@ -1723,7 +1825,9 @@ async function rewriteWithLlm(ctx, route, raw, config, level, outerSignal) {
   async function collect() {
     let text = ''
     for (;;) {
-      const { done, value } = await iterator.next()
+      // 深度标记内拉取：改写调用自己的流不进会话轮缓存。
+      const result = await llmDepth.run(1, () => iterator.next())
+      const { done, value } = result
       if (done) break
       if (value.type === 'text-delta') text += value.text
       else if (value.type === 'finish' && value.reason && (value.reason.kind === 'error' || value.reason.kind === 'aborted')) {
@@ -1770,7 +1874,7 @@ function apply(ctx, config) {
 
   // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。必须先回放
   // 再初始化 currentLevel，重启后上次的强度档位才生效。
-  const SETTINGS_KEYS = ['level', 'mode', 'preStepAuto', 'language', 'styleHint', 'timeoutMs', 'minPromptLength', 'maxInputChars']
+  const SETTINGS_KEYS = ['level', 'mode', 'preStepAuto', 'language', 'styleHint', 'timeoutMs', 'minPromptLength', 'maxInputChars', 'useContext']
   const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'prompt-enhancer', 'settings.json')
   try {
     const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
@@ -1914,6 +2018,39 @@ function apply(ctx, config) {
   let llmRef = null
 
   if (live.enabled) {
+    // 最近一轮会话捕获：输入框按钮带 sessionId 来取（参考上下文开关）。
+    // 自己的改写调用经 llmDepth 标记透传，不会被误当成对话轮。
+    ctx.on('llm/stream', (options, next) => {
+      if (llmDepth.getStore() !== undefined) return next()
+      const downstream = next()
+      const sessionId = typeof options?.sessionId === 'string' ? options.sessionId : ''
+      const userText = lastUserTextOf(options?.messages)
+      let assistantText = ''
+      let downstreamIter = null
+      let completed = false
+      return (async function* peObserve() {
+        try {
+          downstreamIter = downstream[Symbol.asyncIterator]()
+          for (;;) {
+            const result = await llmDepth.run(1, () => downstreamIter.next())
+            if (result.done) break
+            const chunk = result.value
+            if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
+              assistantText += chunk.text
+              if (assistantText.length > 8000) assistantText = assistantText.slice(-4000)
+            }
+            yield chunk
+          }
+          completed = true
+        } finally {
+          if (!completed) {
+            try { await downstreamIter?.return?.() } catch { /* ignore */ }
+          }
+          try { rememberTurn(sessionId, userText, assistantText) } catch { /* 缓存失败不影响主对话流 */ }
+        }
+      })()
+    }, { global: true })
+
     ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
       const decision = await next()
       if (decision.kind !== 'enter') return decision
@@ -2011,6 +2148,7 @@ function apply(ctx, config) {
           }
           if (body?.mode === 'auto' || body?.mode === 'manual') live.mode = body.mode
           if (body?.preStepAuto !== undefined) live.preStepAuto = body.preStepAuto === true
+          if (body?.useContext !== undefined) live.useContext = body.useContext === true
           if (body?.language === 'auto' || body?.language === 'zh' || body?.language === 'en') live.language = body.language
           if (typeof body?.styleHint === 'string') live.styleHint = body.styleHint.slice(0, 500)
           for (const [key, min, max] of [['timeoutMs', 1000, 120000], ['minPromptLength', 1, 200], ['maxInputChars', 100, 100000]]) {
@@ -2064,20 +2202,24 @@ function apply(ctx, config) {
           send(413, { error: `text exceeds ${live.maxInputChars} chars` })
           return
         }
-        // 单次请求可以覆盖档位（发送拦截路径会带上当前选择），否则用运行时档位。
-        const requested = typeof body?.level === 'string' && body.level in LEVELS ? body.level : currentLevel
-        const level = requested === 'off' ? null : requested
-        if (!level) {
-          send(200, { text, skipped: 'level-off' })
-          return
-        }
-        const route = endpointRoute()
-        if (!route) {
-          send(409, { error: 'no model route available; set provider/model in the plugin config' })
-          return
-        }
-        try {
-          const enhanced = await rewriteWithLlm(webCtx, route, text, config, level)
+          // 单次请求可以覆盖档位（发送拦截路径会带上当前选择），否则用运行时档位。
+          const requested = typeof body?.level === 'string' && body.level in LEVELS ? body.level : currentLevel
+          const level = requested === 'off' ? null : requested
+          if (!level) {
+            send(200, { text, skipped: 'level-off' })
+            return
+          }
+          const route = endpointRoute()
+          if (!route) {
+            send(409, { error: 'no model route available; set provider/model in the plugin config' })
+            return
+          }
+          // 参考上下文开关：前端带 sessionId，服务端取该会话最近一轮。
+          const contextTurn = live.useContext && typeof body?.sessionId === 'string'
+            ? cachedTurnOf(body.sessionId)
+            : null
+          try {
+            const enhanced = await rewriteWithLlm(webCtx, route, text, config, level, undefined, contextTurn)
           // 记下指纹：这条文本随后经 submit 进入 pre-step 时不再二次增强。
           rememberEnhanced(enhanced)
           send(200, { text: enhanced, level })
