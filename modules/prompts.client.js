@@ -200,12 +200,20 @@ function createPromptsClient(require) {
   /** 划选正文文字浮出「存」按钮 → 存为模板 / 存为片段（两个库的收集入口）。 */
   function installSelectionSaver() {
     if (typeof document === 'undefined') return
+    // 安装守卫：宿主重挂载时 apply 可能跑第二次，重复监听会造出多个浮层。
+    if (document.documentElement.dataset.dshSelectionSaver) return
+    document.documentElement.dataset.dshSelectionSaver = '1'
     let host = null
     let hideTimer = 0
 
     const ensureHost = () => {
-      if (host?.isConnected) return host
-      if (host) host.remove()
+      // 文档级单例：无论模块实例化几次，全页只留一个浮层容器。
+      const existing = document.querySelectorAll('[data-dsh-superinput-portal="selection"]')
+      for (let i = 1; i < existing.length; i += 1) existing[i].remove()
+      if (existing[0]?.isConnected) {
+        host = existing[0]
+        return host
+      }
       host = document.createElement('div')
       host.setAttribute('data-dsh-superinput-portal', 'selection')
       host.style.cssText = 'position:fixed;z-index:1150;display:none;'
