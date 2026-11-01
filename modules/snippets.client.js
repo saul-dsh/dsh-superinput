@@ -161,7 +161,20 @@ function createSnippetsClient(require) {
     const pinned = all.filter((item) => item.pinned && (!q || item.text.toLowerCase().includes(q)))
     const recent = all.filter((item) => !item.pinned && (!q || item.text.toLowerCase().includes(q)))
 
-    return createPortal(h('div', { className: 'dsh-cs-panel', style: pos ?? { display: 'none' } },
+    // portal 容器：自建 div 挂 body——不直接用 document.body（与 prompts 同款，
+    // 绕开 rc.5 环境下 React #200 "Target container is not a DOM element"）。
+    const portalHost = React.useRef(null)
+    if (!portalHost.current && typeof document !== 'undefined' && document.body) {
+      try {
+        portalHost.current = document.createElement('div')
+        portalHost.current.setAttribute('data-dsh-superinput-portal', 'snippets')
+        document.body.appendChild(portalHost.current)
+      } catch { portalHost.current = null }
+    }
+    React.useEffect(() => () => { portalHost.current?.remove() }, [])
+
+    return portalHost.current
+      ? createPortal(h('div', { className: 'dsh-cs-panel', style: pos ?? { display: 'none' } },
       h('input', {
         ref: inputRef,
         className: 'dsh-cs-search',
@@ -187,7 +200,8 @@ function createSnippetsClient(require) {
                 h('button', { className: 'dsh-cs-act', title: '收藏', onClick: () => { void pin(item) } }, '☆'),
                 h('button', { className: 'dsh-cs-act', title: '删除', onClick: () => { void remove(item.id) } }, '✕'))),
             ])),
-      document.body)
+      portalHost.current)
+      : null
   }
 
   const CLIPBOARD_ICON = h('svg', {

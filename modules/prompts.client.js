@@ -194,6 +194,17 @@ function createPromptsClient(require) {
       })
     }, [anchor])
 
+    // 临时取证：面板打开后上报容器/位置/挂载状态（定位 #200 根因用）。
+    React.useEffect(() => {
+      let panel = null
+      try { panel = document.querySelector('.dsh-cp-panel') } catch (e) { report(`probe query failed: ${e}`) }
+      let rectText = 'NULL'
+      try { rectText = anchor ? `${anchor.tagName}@${Math.round(anchor.getBoundingClientRect().left)},${Math.round(anchor.getBoundingClientRect().top)}` : 'NULL' } catch (e) { rectText = `rect-threw:${e}` }
+      let bodyText = 'no-body'
+      try { bodyText = `${document.body?.nodeType}/${document.body?.tagName}` } catch (e) { bodyText = `body-threw:${e}` }
+      report(`panel-open: anchor=${rectText} pos=${JSON.stringify(pos)} panelInDom=${!!panel} display=${panel ? getComputedStyle(panel).display : '-'} body=${bodyText} react=${React.version}`)
+    })
+
     const insert = (item, values) => {
       try {
         let out = String(item.body ?? '')
@@ -304,7 +315,24 @@ function createPromptsClient(require) {
           }, '插入')))
       : null
 
-    return createPortal(h('div', { className: 'dsh-cp-panel', style: pos ?? { display: 'none' } },
+    // portal 容器：自建 div 挂 body——不再直接用 document.body（rc.5 环境里
+    // 出现过 React #200 "Target container is not a DOM element"，自建元素
+    // 结构上必然是 Element，绕开该判定的任何环境怪癖）。
+    const portalHost = React.useRef(null)
+    if (!portalHost.current && typeof document !== 'undefined' && document.body) {
+      try {
+        portalHost.current = document.createElement('div')
+        portalHost.current.setAttribute('data-dsh-superinput-portal', 'prompts')
+        document.body.appendChild(portalHost.current)
+      } catch (error) {
+        report(`portal host create failed: ${error?.stack ?? error}`)
+        portalHost.current = null
+      }
+    }
+    React.useEffect(() => () => { portalHost.current?.remove() }, [])
+
+    return portalHost.current
+      ? createPortal(h('div', { className: 'dsh-cp-panel', style: pos ?? { display: 'none' } },
       h('div', { className: 'dsh-cp-head' },
         h('input', {
           ref: inputRef,
@@ -331,7 +359,8 @@ function createPromptsClient(require) {
               pinned.length > 0 && recent.length > 0 ? h('div', { className: 'dsh-cp-group', key: 'rg' }, '全部') : null,
               ...recent.map(row),
             ]),
-      flash ? h('div', { className: 'dsh-cp-empty' }, flash) : null))
+      flash ? h('div', { className: 'dsh-cp-empty' }, flash) : null), portalHost.current)
+      : null
   }
 
   /** 错误边界：面板渲染崩溃时留痕（走 snippets /diag）而不是无声消失。 */
@@ -339,7 +368,7 @@ function createPromptsClient(require) {
     constructor(props) { super(props); this.state = { crashed: false } }
     static getDerivedStateFromError() { return { crashed: true } }
     componentDidCatch(error, info) {
-      report(`boundary: ${String(error?.message ?? error).slice(0, 200)} | ${String(info?.componentStack ?? '').slice(0, 160)}`)
+      report(`boundary: ${String(error?.message ?? error).slice(0, 200)} | stack: ${String(error?.stack ?? '').slice(0, 400)}`)
     }
     render() { return this.state.crashed ? null : this.props.children }
   }
