@@ -1,6 +1,9 @@
 /* dsh-superinput 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
  * 入口拆分：index.js 是零依赖探针（先 trace 再动态 import 本文件并捕获失败）——
  * 顶层静态 import 的失败发生在入口任何语句之前，静默且永远取不到证据。 */
+import { appendFileSync as diagAppend, mkdirSync as diagMkdir } from 'node:fs'
+import { homedir as diagHomedir } from 'node:os'
+import { dirname as diagDirname, join as pathJoin } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { appendFile, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
@@ -10,6 +13,14 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+
+const SUITE_DIAG = pathJoin(diagHomedir(), '.dsh', 'superinput-debug.log')
+const trace = (line) => {
+  try {
+    diagMkdir(diagDirname(SUITE_DIAG), { recursive: true })
+    diagAppend(SUITE_DIAG, `${new Date().toISOString()} ${line}\n`, 'utf8')
+  } catch { /* ignore */ }
+}
 
 /* ==== module: cost（原 dsh-cost） ==== */
 const costModule = (() => {
@@ -1929,28 +1940,33 @@ function apply(ctx, config) {
       return { ...decision, messages }
     })
 
-    // 注册模型可调用的工具：agent 自己也能主动增强某段提示词
-    ctx.tools.register(defineTool({
-      name: 'enhance_prompt',
-      description: [
-        'Rewrite a rough user prompt into a clear, specific, self-contained prompt before using it.',
-        'Use it when the user asks to improve/expand their prompt, or before re-running a vague earlier request.',
-      ].join(' '),
-      parameters: {
-        prompt: { type: 'string', required: true, description: 'The raw prompt text to enhance' },
-      },
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: value }],
-      },
-      async execute(args, exec) {
-        const route = endpointRoute()
-        if (!route) throw new Error('No model route available: set provider/model in the plugin config.')
-        const level = currentLevel === 'off' ? 'high' : currentLevel
-        const enhanced = await rewriteWithLlm(ctx, route, String(args.prompt ?? '').trim(), config, level, exec?.signal)
-        return enhanced
-      },
-    }))
+    // 注册模型可调用的工具：agent 自己也能主动增强某段提示词。
+    // 显式嵌套声明 ['llm','tools']：套件作用域的 inject 解析时机不稳
+    // （真机 0.3.0：suite 联合声明了 tools，enhancer.apply 里仍报
+    // cannot get property "tools" without inject → 整个前缀未注册）。
+    ctx.inject(['llm', 'tools'], (scope) => {
+      scope.tools.register(defineTool({
+        name: 'enhance_prompt',
+        description: [
+          'Rewrite a rough user prompt into a clear, specific, self-contained prompt before using it.',
+          'Use it when the user asks to improve/expand their prompt, or before re-running a vague earlier request.',
+        ].join(' '),
+        parameters: {
+          prompt: { type: 'string', required: true, description: 'The raw prompt text to enhance' },
+        },
+        output: {
+          schema: { type: 'string' },
+          render: (_args, value) => [{ type: 'text', text: value }],
+        },
+        async execute(args, exec) {
+          const route = endpointRoute()
+          if (!route) throw new Error('No model route available: set provider/model in the plugin config.')
+          const level = currentLevel === 'off' ? 'high' : currentLevel
+          const enhanced = await rewriteWithLlm(ctx, route, String(args.prompt ?? '').trim(), config, level, exec?.signal)
+          return enhanced
+        },
+      }))
+    })
 
     log('log', `loaded (mode=${live.mode}, timeout=${live.timeoutMs}ms)`)
   } else {
@@ -3399,8 +3415,10 @@ export function apply(ctx, config) {
     try {
       const own = merged[key]
       mod.apply(ctx, key === 'hub' ? { ...own, snapshot: merged } : own)
+      trace(`module "${key}" applied OK`)
     } catch (error) {
       console.error(`[dsh-superinput] server module "${key}" failed:`, error)
+      trace(`module "${key}" FAILED: ${String(error?.stack ?? error).slice(0, 600)}`)
     }
   }
 }

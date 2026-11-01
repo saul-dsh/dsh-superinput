@@ -137,7 +137,18 @@ if (!allImports.some((line) => line.includes('@deepseek-ai/schemastery'))) {
 const server = `/* dsh-superinput 服务端核心（由 scripts/build-suite.mjs 生成；勿手改）。
  * 入口拆分：index.js 是零依赖探针（先 trace 再动态 import 本文件并捕获失败）——
  * 顶层静态 import 的失败发生在入口任何语句之前，静默且永远取不到证据。 */
+import { appendFileSync as diagAppend, mkdirSync as diagMkdir } from 'node:fs'
+import { homedir as diagHomedir } from 'node:os'
+import { dirname as diagDirname, join as pathJoin } from 'node:path'
 ${allImports.join('\n')}
+
+const SUITE_DIAG = pathJoin(diagHomedir(), '.dsh', 'superinput-debug.log')
+const trace = (line) => {
+  try {
+    diagMkdir(diagDirname(SUITE_DIAG), { recursive: true })
+    diagAppend(SUITE_DIAG, \`\${new Date().toISOString()} \${line}\\n\`, 'utf8')
+  } catch { /* ignore */ }
+}
 
 ${iifes.join('\n\n')}
 
@@ -188,8 +199,10 @@ export function apply(ctx, config) {
     try {
       const own = merged[key]
       mod.apply(ctx, key === 'hub' ? { ...own, snapshot: merged } : own)
+      trace(\`module "\${key}" applied OK\`)
     } catch (error) {
       console.error(\`[dsh-superinput] server module "\${key}" failed:\`, error)
+      trace(\`module "\${key}" FAILED: \${String(error?.stack ?? error).slice(0, 600)}\`)
     }
   }
 }
