@@ -6,7 +6,7 @@ dsh（DeepSeek Harness）**超级输入框套件**：一个插件，八个输入
 |---|---|---|
 | **cost** | 费用引擎：状态行费用 pill、官方用量旁的费用按钮+弹卡、月底预测、设置页统计/预算/导出、历史回填、官方价格同步、汇率自动刷新 | 原 dsh-cost |
 | **picker** | 模型选择器接管 + 推理强度滑条 | 原 dsh-power-picker |
-| **enhancer** | 提示词增强 ✨：点按弹出动作菜单——增强提示词（强度滑条）/ 翻译 / 润色 / 扩写 / 缩写 / 语气，增强与草稿变换共用撤销管线 | 原 dsh-prompt-enhancer |
+| **enhancer** | 提示词增强按钮：点一下把草稿增强成结构化提示词，悬浮调强度，支持发送时自动增强 | 原 dsh-prompt-enhancer |
 | **followup** | 回合尾跟进建议 chips | 原 dsh-followup |
 | **voice** | 语音输入 | 原 dsh-siri-voice |
 | **snippets** | 片段管理器：自动捕获窗口内复制 → 收藏/搜索/点击插入草稿 | 新模块 |
