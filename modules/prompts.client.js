@@ -125,6 +125,17 @@ function createPromptsClient(require) {
     } catch { return null }
   }
 
+  /** 异常留痕：走 snippets /diag（服务端落 snippets-debug.log），prompts 自己没有 diag 端点。 */
+  function report(message) {
+    try {
+      void fetch('/api/dsh-superinput/snippets/diag', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: `prompts: ${String(message).slice(0, 300)}` }),
+      }).catch(() => {})
+    } catch { /* ignore */ }
+  }
+
   /** 找出正文里的 {{变量}}，去重保序。 */
   function varsOf(text) {
     const found = []
@@ -136,23 +147,12 @@ function createPromptsClient(require) {
     return found
   }
 
-  /** 有变量就逐个弹窗填，取消返回 null。 */
-  function fillVars(text) {
-    const names = varsOf(text)
-    if (names.length === 0) return text
-    let out = text
-    for (const name of names) {
-      const value = window.prompt(`填写 {{${name}}}`, '')
-      if (value === null) return null
-      out = out.replace(new RegExp(`\\{\\{\\s*${name}\\s*\\}\\}`, 'g'), value)
-    }
-    return out
-  }
-
   function PromptsPanel({ anchor, onClose }) {
     const [items, setItems] = React.useState(null)
     const [query, setQuery] = React.useState('')
     const [draft, setDraft] = React.useState(null)
+    const [fill, setFill] = React.useState(null)
+    const [flash, setFlash] = React.useState(null)
     const inputRef = React.useRef(null)
 
     const reload = React.useCallback(async () => {
@@ -161,11 +161,11 @@ function createPromptsClient(require) {
     }, [])
     React.useEffect(() => { void reload() }, [reload])
 
-    // 编辑中不响应 Esc / 点外，避免丢失刚输入的内容。
+    // 编辑/填变量中不响应 Esc / 点外，避免丢失刚输入的内容。
     React.useEffect(() => {
-      const onKey = (event) => { if (event.key === 'Escape' && !draft) onClose() }
+      const onKey = (event) => { if (event.key === 'Escape' && !draft && !fill) onClose() }
       const onClick = (event) => {
-        if (draft) return
+        if (draft || fill) return
         if (!event.target.closest?.('.dsh-cp-panel') && !event.target.closest?.('.dsh-cp-btn')) onClose()
       }
       document.addEventListener('keydown', onKey)
@@ -174,7 +174,13 @@ function createPromptsClient(require) {
         document.removeEventListener('keydown', onKey)
         document.removeEventListener('mousedown', onClick, true)
       }
-    }, [onClose, draft])
+    }, [onClose, draft, fill])
+
+    React.useEffect(() => {
+      if (!flash) return undefined
+      const timer = setTimeout(() => setFlash(null), 3500)
+      return () => clearTimeout(timer)
+    }, [flash])
 
     const [pos, setPos] = React.useState(null)
     React.useEffect(() => {
@@ -188,13 +194,24 @@ function createPromptsClient(require) {
       })
     }, [anchor])
 
-    const insert = (item) => {
-      const filled = fillVars(item.body)
-      if (filled === null) return
-      const current = String(window.__dshComposerDraft?.() ?? '')
-      const next = current ? `${current}\n${filled}` : filled
-      window.__dshComposerSetDraft?.(next)
-      onClose()
+    const insert = (item, values) => {
+      try {
+        let out = String(item.body ?? '')
+        for (const [name, value] of Object.entries(values ?? {})) {
+          out = out.replace(new RegExp(`\\{\\{\\s*${name}\\s*\\}\\}`, 'g'), value ?? '')
+        }
+        if (!window.__dshSuperinputSetDraft) {
+          setFlash('草稿桥未就绪，请关掉面板重开再试')
+          report('insert skipped: draft bridge missing')
+          return
+        }
+        const current = String(window.__dshSuperinputDraft?.() ?? '')
+        window.__dshSuperinputSetDraft(current ? `${current}\n${out}` : out)
+        onClose()
+      } catch (error) {
+        report(`insert failed: ${error?.stack ?? error}`)
+        setFlash(`插入失败：${String(error?.message ?? error)}`)
+      }
     }
 
     const remove = async (id) => { await api('/remove', { id }); void reload() }
@@ -214,7 +231,14 @@ function createPromptsClient(require) {
     function row(item) {
       const vars = varsOf(item.body)
       return h('div', { className: 'dsh-cp-row', key: item.id },
-        h('div', { className: 'dsh-cp-row-main', onClick: () => insert(item) },
+        h('div', {
+          className: 'dsh-cp-row-main',
+          onClick: () => {
+            const vars = varsOf(item.body)
+            if (vars.length === 0) insert(item)
+            else setFill({ item, names: vars, values: {} })
+          },
+        },
           h('div', { className: 'dsh-cp-title' }, item.title),
           h('div', { className: 'dsh-cp-preview' }, String(item.body).split('\n')[0].slice(0, 100)),
           vars.length > 0
@@ -262,6 +286,24 @@ function createPromptsClient(require) {
           h('button', { className: 'dsh-cp-action primary', onClick: () => { void save() } }, '保存')))
       : null
 
+    const fillForm = fill
+      ? h('div', { className: 'dsh-cp-editor' },
+        h('div', { className: 'dsh-cp-group' }, `填写「${fill.item.title || '模板'}」的变量`),
+        ...fill.names.map((name) => h('input', {
+          key: name,
+          className: 'dsh-cp-input',
+          placeholder: `{{${name}}}`,
+          value: fill.values[name] ?? '',
+          onInput: (event) => setFill({ ...fill, values: { ...fill.values, [name]: event.target.value } }),
+        })),
+        h('div', { className: 'dsh-cp-actions' },
+          h('button', { className: 'dsh-cp-action', onClick: () => setFill(null) }, '取消'),
+          h('button', {
+            className: 'dsh-cp-action primary',
+            onClick: () => { const f = fill; setFill(null); insert(f.item, f.values) },
+          }, '插入')))
+      : null
+
     return createPortal(h('div', { className: 'dsh-cp-panel', style: pos ?? { display: 'none' } },
       h('div', { className: 'dsh-cp-head' },
         h('input', {
@@ -277,7 +319,8 @@ function createPromptsClient(require) {
           onClick: () => setDraft({ title: '', body: '', tagsText: '' }),
         }, '+')),
       editor,
-      draft ? null : h('div', { className: 'dsh-cp-list' },
+      fillForm,
+      (draft || fill) ? null : h('div', { className: 'dsh-cp-list' },
         !items
           ? h('div', { className: 'dsh-cp-empty' }, '加载中…')
           : (pinned.length === 0 && recent.length === 0)
@@ -287,7 +330,18 @@ function createPromptsClient(require) {
               ...pinned.map(row),
               pinned.length > 0 && recent.length > 0 ? h('div', { className: 'dsh-cp-group', key: 'rg' }, '全部') : null,
               ...recent.map(row),
-            ])))
+            ]),
+      flash ? h('div', { className: 'dsh-cp-empty' }, flash) : null))
+  }
+
+  /** 错误边界：面板渲染崩溃时留痕（走 snippets /diag）而不是无声消失。 */
+  class PromptsBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { crashed: false } }
+    static getDerivedStateFromError() { return { crashed: true } }
+    componentDidCatch(error, info) {
+      report(`boundary: ${String(error?.message ?? error).slice(0, 200)} | ${String(info?.componentStack ?? '').slice(0, 160)}`)
+    }
+    render() { return this.state.crashed ? null : this.props.children }
   }
 
   function PromptsButton() {
@@ -310,7 +364,7 @@ function createPromptsClient(require) {
         name: 'conversation.composer.dock',
         id: 'dsh-superinput-prompts-btn',
         order: 4,
-      }, PromptsButton))
+      }, (props) => h(PromptsBoundary, null, h(PromptsButton, props))))
     },
   }
 }

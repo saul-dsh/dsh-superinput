@@ -150,9 +150,9 @@ function createSnippetsClient(require) {
     const pin = async (item) => { await api('pin', { id: item.id, pinned: !item.pinned }); void reload() }
     const insert = async (item) => {
       // 插入 = 追加到当前草稿尾部（无光标级插入 API；追加后由宿主聚焦编辑器）。
-      const current = String(window.__dshComposerDraft?.() ?? '')
+      const current = String(window.__dshSuperinputDraft?.() ?? '')
       const next = current ? `${current}\n${item.text}` : item.text
-      window.__dshComposerSetDraft?.(next)
+      window.__dshSuperinputSetDraft?.(next)
       onClose()
     }
 
@@ -263,8 +263,8 @@ function createSnippetsClient(require) {
   function SnippetsDraftBridge({ useInput, inputActions }) {
     const draft = useInput((state) => state.draft)
     React.useEffect(() => {
-      window.__dshComposerDraft = () => (typeof draft === 'string' ? draft : '')
-      window.__dshComposerSetDraft = (value) => {
+      window.__dshSuperinputDraft = () => (typeof draft === 'string' ? draft : '')
+      window.__dshSuperinputSetDraft = (value) => {
         try { inputActions?.setDraft?.(value) } catch { /* ignore */ }
       }
     }, [draft, inputActions])
