@@ -89,16 +89,6 @@ function createHubClient(require) {
       ],
     },
     {
-      key: 'snippets',
-      label: '片段管理',
-      endpoint: '/api/dsh-superinput/snippets/settings',
-      fields: [
-        { key: 'captureEnabled', label: '自动捕获', type: 'bool' },
-        { key: 'maxItems', label: '上限', type: 'number', min: 20, max: 2000 },
-        { key: 'minChars', label: '最小字数', type: 'number', min: 1, max: 100 },
-      ],
-    },
-    {
       key: 'prompts',
       label: '模板库',
       endpoint: '/api/dsh-superinput/prompts/settings',

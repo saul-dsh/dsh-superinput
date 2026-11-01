@@ -28,7 +28,6 @@ const PERSISTED_FILES = [
   ['enhancer', 'enhancer.settings.json'],
   ['followup', 'followup.settings.json'],
   ['picker', 'picker.settings.json'],
-  ['snippets', 'snippets.settings.json'],
   ['prompts', 'prompts.settings.json'],
 ]
 

@@ -240,6 +240,32 @@ body[data-ds-dark-theme] .dsh-cost-pop {
     let latestState = null
     let timer = 0
 
+    /** 预算超限系统通知：跨线 100% 时每周期弹一次（80% 只走 UI 变色不打扰）。 */
+    let budgetNoticeKey = null
+    function notifyBudgetOnce(state) {
+      try {
+        const budget = state?.budget
+        if (!budget || !(budget.usedPct >= 1)) return
+        const key = `${budget.period}:${budget.amount}`
+        if (budgetNoticeKey === key) return
+        budgetNoticeKey = key
+        if (typeof Notification === 'undefined') return
+        const periodLabel = budget.period === 'day' ? '今日' : budget.period === 'month' ? '本月' : '累计'
+        const fire = () => {
+          try {
+            const n = new Notification('dsh 费用预算已超限', {
+              body: `${periodLabel}费用 ¥${Number(budget.used).toFixed(2)}，已达预算 ¥${Number(budget.amount).toFixed(2)} 的 ${(budget.usedPct * 100).toFixed(0)}%。`,
+            })
+            n.onclick = () => { window.focus?.(); n.close() }
+          } catch { /* 通知不可用：UI 超限变色兜底 */ }
+        }
+        if (Notification.permission === 'granted') fire()
+        else if (Notification.permission === 'default') {
+          void Notification.requestPermission?.().then((p) => { if (p === 'granted') fire() }).catch(() => {})
+        }
+      } catch { /* ignore */ }
+    }
+
     async function pollOnce() {
       try {
         const res = await fetch(`${ENDPOINT}/state`, { cache: 'no-store' })
@@ -247,6 +273,7 @@ body[data-ds-dark-theme] .dsh-cost-pop {
         const data = await res.json()
         if (!data || typeof data !== 'object') return
         latestState = data
+        notifyBudgetOnce(latestState)
         for (const listener of listeners) {
           try { listener(latestState) } catch { /* 单订阅者异常不断链 */ }
         }
@@ -1571,6 +1598,15 @@ function createPickerClient(require) {
 }
 .dsh-power-model-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
 .dsh-power-model-row[data-current="true"] { color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.92)); }
+.dsh-power-model-price {
+  flex: 0 0 auto;
+  font-size: 10px; line-height: 16px; padding: 0 5px;
+  border-radius: 4px; font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.5));
+  background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.06));
+}
+.dsh-power-model-price[data-tone="warm"] { color: #f0b429; }
+.dsh-power-model-price[data-tone="cool"] { color: #4ade80; }
 .dsh-power-model-name {
   flex: 1;
   overflow: hidden;
@@ -1626,6 +1662,35 @@ function createPickerClient(require) {
       style.id = STYLE_ID
       style.textContent = CSS
       document.head.appendChild(style)
+    }
+
+    /* -- 价格标记（数据来自 dsh-cost 的 /prices 档价端点） -------------- */
+
+    let priceCache = null // { at, data }
+    async function loadPrices() {
+      if (priceCache && Date.now() - priceCache.at < 10 * 60 * 1000) return priceCache.data
+      try {
+        const res = await fetch('/api/dsh-cost/prices', { cache: 'no-store' })
+        if (!res.ok) return null
+        const data = await res.json()
+        priceCache = { at: Date.now(), data }
+        return data
+      } catch { return null }
+    }
+    /** 模型 id → 档位：pro/reasoner 走 pro 档，其余（flash/chat/第三方）走 flash(默认) 档。 */
+    function tierKeyOf(modelId) {
+      return /pro|reasoner/i.test(String(modelId ?? '')) ? 'pro' : 'flash'
+    }
+    /** 当前峰谷下的输出价（USD/1M）；取不到返回 null。 */
+    function priceOf(data, modelId) {
+      if (!data) return null
+      const models = data.models ?? {}
+      const key = tierKeyOf(modelId)
+      const tier = key === 'pro'
+        ? Object.entries(models).find(([k]) => /pro/i.test(k))?.[1] ?? data.default
+        : Object.entries(models).find(([k]) => /flash/i.test(k))?.[1] ?? data.default
+      const t = data.peak === true ? tier?.peak : tier?.offPeak
+      return typeof t?.output === 'number' ? t.output : null
     }
 
     /* ---------------------------------------------------------------- */
@@ -2184,6 +2249,15 @@ function createPickerClient(require) {
       // Codex 同款：点卡片上方的模型名展开模型列表选其他模型。
       const [pane, setPane] = React.useState('root')
 
+      // 价格标记：dsh-cost 的档价（flash/pro，峰谷感知）+ 当前模型基准 → 每行 ×N。
+      // 10 分钟缓存；cross-module 数据走 cost 的 /prices 端点，取不到就不显示。
+      const [priceIndex, setPriceIndex] = React.useState(priceCache?.data ?? null)
+      React.useEffect(() => {
+        let alive = true
+        void loadPrices().then((data) => { if (data && alive) setPriceIndex(data) })
+        return () => { alive = false }
+      }, [])
+
       const failure = state?.error ?? null
 
       const pickModel = (provider, modelId) => {
@@ -2287,6 +2361,15 @@ function createPickerClient(require) {
                         const isCurrent = current
                           && group.id === current.provider
                           && entry.id === current.model
+                        // 相对当前模型的价格倍数：×1 不显示，>1 暖色提醒切贵
+                        let priceBadge = null
+                        const rowPrice = priceOf(priceIndex, entry.id)
+                        const basePrice = priceOf(priceIndex, current?.model)
+                        if (rowPrice && basePrice) {
+                          const ratio = rowPrice / basePrice
+                          if (ratio >= 1.05) priceBadge = { text: `×${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}`, tone: 'warm' }
+                          else if (ratio <= 0.95) priceBadge = { text: `×${ratio.toFixed(1)}`, tone: 'cool' }
+                        }
                         return h('button', {
                           key: `${group.id}:${entry.id}`,
                           type: 'button',
@@ -2299,6 +2382,13 @@ function createPickerClient(require) {
                             style: { '--meter-tint': tintOf(groupIndex) },
                           }),
                           h('span', { className: 'dsh-power-model-name' }, entry.name ?? entry.id),
+                          priceBadge
+                            ? h('span', {
+                              className: 'dsh-power-model-price',
+                              'data-tone': priceBadge.tone,
+                              title: `输出价约为当前模型的 ${priceBadge.text}`,
+                            }, priceBadge.text)
+                            : null,
                           h('span', { className: 'dsh-power-model-check' }, '✓'),
                         )
                       }),
@@ -4202,313 +4292,6 @@ svg[viewBox="0 0 640 40"] { visibility: hidden !important; }
     }
 }
 
-/* dsh-superinput · snippets 模块客户端：copy 捕获 + dock 入口 + 片段面板。 */
-function createSnippetsClient(require) {
-  const React = require('react')
-  const { createPortal } = require('react-dom')
-  const h = React.createElement
-
-  const STYLE_ID = 'dsh-superinput-snippets-style'
-  const ENDPOINT = '/api/dsh-superinput/snippets'
-  const MAX_TEXT = 100_000
-
-  const CSS = `
-.dsh-cs-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72)) !important;
-  font-size: 12px;
-  line-height: 20px;
-  font-variant-numeric: tabular-nums;
-  padding: 1px 8px;
-  border-radius: var(--dsw-radius-sm, 6px);
-  cursor: default;
-  user-select: none;
-}
-.dsh-cs-btn:hover { background: var(--dsw-alias-interactive-bg-hover) !important; color: var(--dsw-alias-label-primary) !important; }
-.dsh-cs-panel {
-  position: fixed;
-  z-index: 1100;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--dsw-radius-lg, 12px);
-  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.45));
-  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
-  -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
-  width: min(340px, 100vw - 24px);
-  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
-  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.04), 0 0 20px 0 rgba(0, 0, 0, 0.05));
-  color: var(--dsw-alias-label-secondary);
-  padding: 10px;
-  font-size: 12px;
-  line-height: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.dsh-cs-search {
-  box-sizing: border-box;
-  width: 100%;
-  height: 28px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--dsw-radius-sm, 6px);
-  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.06));
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
-  outline: none;
-}
-.dsh-cs-search::placeholder { color: var(--dsw-alias-label-tertiary); }
-.dsh-cs-list { max-height: 320px; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
-.dsh-cs-row { display: flex; align-items: center; gap: 6px; min-height: 30px; border-radius: 6px; padding: 2px 6px; }
-.dsh-cs-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-cs-row + .dsh-cs-row { margin-top: 1px; }
-.dsh-cs-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary); cursor: default; }
-.dsh-cs-meta { flex: none; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
-.dsh-cs-act { flex: none; border: none; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; }
-.dsh-cs-act:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-cs-empty { padding: 12px 6px; text-align: center; color: var(--dsw-alias-label-tertiary); }
-.dsh-cs-pinned-title { padding: 2px 6px; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
-`
-
-  function ensureStyle() {
-    if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return
-    const style = document.createElement('style')
-    style.id = STYLE_ID
-    style.textContent = CSS
-    document.head.appendChild(style)
-  }
-
-  async function api(path, body) {
-    const res = await fetch(`${ENDPOINT}/${path}`, body === undefined
-      ? { cache: 'no-store' }
-      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-    if (!res.ok) return null
-    return res.json().catch(() => null)
-  }
-
-  /** 复制捕获：capture 阶段监听，选中非空文本去重上报（服务端再按指纹去重）。 */
-  function startCapture() {
-    let lastSent = ''
-    let lastSentAt = 0
-    let timer = 0
-    document.addEventListener('copy', () => {
-      // 读选区放 debounce 外取不到（copy 后选区仍在，但稳妥起见同步取）。
-      const text = String(window.getSelection?.() ?? '').slice(0, MAX_TEXT)
-      if (!text || text.trim().length < 2) return
-      if (text === lastSent && Date.now() - lastSentAt < 1500) return
-      lastSent = text
-      lastSentAt = Date.now()
-      if (timer) return
-      timer = setTimeout(() => {
-        timer = 0
-        void api('add', { text: lastSent, source: 'copy' }).catch(() => {})
-      }, 600)
-    }, true)
-  }
-
-  /** 片段面板：官方弹卡模板（半透明底 + 毛玻璃），向上展开，点外/Esc 关闭。 */
-  function SnippetsPanel({ anchor, onClose }) {
-    const [items, setItems] = React.useState(null)
-    const [query, setQuery] = React.useState('')
-    const inputRef = React.useRef(null)
-
-    const reload = React.useCallback(async () => {
-      const data = await api('list')
-      if (data && Array.isArray(data.items)) setItems(data.items)
-    }, [])
-    React.useEffect(() => { void reload() }, [reload])
-
-    React.useEffect(() => {
-      inputRef.current?.focus()
-      const onKey = (event) => { if (event.key === 'Escape') onClose() }
-      const onClick = (event) => {
-        if (!event.target.closest?.('.dsh-cs-panel') && !event.target.closest?.('.dsh-cs-btn')) onClose()
-      }
-      document.addEventListener('keydown', onKey)
-      document.addEventListener('mousedown', onClick, true)
-      return () => {
-        document.removeEventListener('keydown', onKey)
-        document.removeEventListener('mousedown', onClick, true)
-      }
-    }, [onClose])
-
-    // 面板出现在按钮上方（输入区贴窗口底，向上展开防裁剪）。
-    const [pos, setPos] = React.useState(null)
-    React.useEffect(() => {
-      if (!anchor) return
-      const rect = anchor.getBoundingClientRect()
-      const width = Math.min(340, window.innerWidth - 24)
-      setPos({
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
-        top: Math.max(8, rect.top - 8),
-        transform: 'translateY(-100%)',
-      })
-    }, [anchor])
-
-    const remove = async (id) => { await api('remove', { id }); void reload() }
-    const pin = async (item) => { await api('pin', { id: item.id, pinned: !item.pinned }); void reload() }
-    const insert = async (item) => {
-      // 插入 = 追加到当前草稿尾部（无光标级插入 API；追加后由宿主聚焦编辑器）。
-      const current = String(window.__dshSuperinputDraft?.() ?? '')
-      const next = current ? `${current}\n${item.text}` : item.text
-      window.__dshSuperinputSetDraft?.(next)
-      onClose()
-    }
-
-    const q = query.trim().toLowerCase()
-    const all = items ?? []
-    const pinned = all.filter((item) => item.pinned && (!q || item.text.toLowerCase().includes(q)))
-    const recent = all.filter((item) => !item.pinned && (!q || item.text.toLowerCase().includes(q)))
-
-    // portal 容器：自建 div 挂 body——不直接用 document.body（与 prompts 同款，
-    // 绕开 rc.5 环境下 React #200 "Target container is not a DOM element"）。
-    const portalHost = React.useRef(null)
-    if (!portalHost.current && typeof document !== 'undefined' && document.body) {
-      try {
-        portalHost.current = document.createElement('div')
-        portalHost.current.setAttribute('data-dsh-superinput-portal', 'snippets')
-        document.body.appendChild(portalHost.current)
-      } catch { portalHost.current = null }
-    }
-    React.useEffect(() => () => { portalHost.current?.remove() }, [])
-
-    return portalHost.current
-      ? createPortal(h('div', { className: 'dsh-cs-panel', style: pos ?? { display: 'none' } },
-      h('input', {
-        ref: inputRef,
-        className: 'dsh-cs-search',
-        placeholder: '搜索片段…',
-        value: query,
-        onInput: (event) => setQuery(event.target.value),
-      }),
-      h('div', { className: 'dsh-cs-list' },
-        !items
-          ? h('div', { className: 'dsh-cs-empty' }, '加载中…')
-          : (pinned.length === 0 && recent.length === 0)
-            ? h('div', { className: 'dsh-cs-empty' }, q ? '没有匹配的片段' : '在输入区或正文里复制内容，就会出现在这里')
-            : [
-              pinned.length > 0 ? h('div', { className: 'dsh-cs-pinned-title', key: 'pt' }, '已收藏') : null,
-              ...pinned.map((item) => h('div', { className: 'dsh-cs-row', key: item.id },
-                h('span', { className: 'dsh-cs-text', title: item.text, onClick: () => { void insert(item) } }, item.text.split('\n')[0].slice(0, 120)),
-                h('button', { className: 'dsh-cs-act', title: '取消收藏', onClick: () => { void pin(item) } }, '★'),
-                h('button', { className: 'dsh-cs-act', title: '删除', onClick: () => { void remove(item.id) } }, '✕'))),
-              recent.length > 0 ? h('div', { className: 'dsh-cs-pinned-title', key: 'rt' }, pinned.length > 0 ? '最近' : '') : null,
-              ...recent.slice(0, 60).map((item) => h('div', { className: 'dsh-cs-row', key: item.id },
-                h('span', { className: 'dsh-cs-text', title: item.text, onClick: () => { void insert(item) } }, item.text.split('\n')[0].slice(0, 120)),
-                h('span', { className: 'dsh-cs-meta' }, new Date(item.at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })),
-                h('button', { className: 'dsh-cs-act', title: '收藏', onClick: () => { void pin(item) } }, '☆'),
-                h('button', { className: 'dsh-cs-act', title: '删除', onClick: () => { void remove(item.id) } }, '✕'))),
-            ])),
-      portalHost.current)
-      : null
-  }
-
-  const CLIPBOARD_ICON = h('svg', {
-    width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true,
-    style: { display: 'block' },
-  },
-  h('path', { d: 'M5.5 3h-1.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1.5', stroke: 'currentColor', 'stroke-width': '1.2', 'stroke-linecap': 'round' }),
-  h('rect', { x: '5.75', y: '1.75', width: '4.5', height: '2.5', rx: '0.75', stroke: 'currentColor', 'stroke-width': '1.2' }))
-
-  /** dock 入口按钮：composer.dock 标准槽位（与费用 pill 同区）。 */
-  function SnippetsButton(props) {
-    const [open, setOpen] = React.useState(false)
-    const buttonRef = React.useRef(null)
-    // onClose 必须无条件调用：曾经写在下方三元分支里，open 翻转时 hook
-    // 数量变化 → React 抛 "Rendered more hooks" → 边界把整个按钮卸成
-    // null（真机表现即「剪贴板一点就消失」，0.1.1 修复）。
-    const onClose = React.useCallback(() => setOpen(false), [])
-    // 存活取证：挂载/卸载各记一条——按钮运行中消失时日志能区分
-    // 「组件被卸载」还是「还在但不可见」。
-    React.useEffect(() => {
-      void fetch(`${ENDPOINT}/diag`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: 'dock button MOUNTED' }),
-      }).catch(() => {})
-      return () => {
-        void fetch(`${ENDPOINT}/diag`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ message: 'dock button UNMOUNTED (host removed the slot component)' }),
-        }).catch(() => {})
-      }
-    }, [])
-    return h('span', { className: 'dsh-cs-anchor' },
-      h('button', {
-        ref: buttonRef,
-        type: 'button',
-        className: 'dsh-cs-btn',
-        title: '片段管理器（自动捕获窗口内复制）',
-        'aria-label': '片段管理器',
-        onClick: (event) => { event.stopPropagation(); setOpen((value) => !value) },
-      }, CLIPBOARD_ICON),
-      open ? h(SnippetsPanel, { anchor: buttonRef.current, onClose }) : null)
-  }
-
-  /**
-   * 错误边界 + 存活取证：真机曾出现「片段」按钮运行中消失（同槽位费用
-   * pill 存活）——组件树抛错被宿主卸载时必须留下证据，否则无从排查。
-   */
-  class SnippetsBoundary extends React.Component {
-    constructor(props) { super(props); this.state = { crashed: false } }
-    static getDerivedStateFromError() { return { crashed: true } }
-    componentDidCatch(error, info) {
-      try {
-        void fetch(`${ENDPOINT}/diag`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ message: `boundary: ${String(error?.message ?? error).slice(0, 200)} | stack: ${String(info?.componentStack ?? '').slice(0, 200)}` }),
-        }).catch(() => {})
-      } catch { /* ignore */ }
-      console.error('[dsh-superinput] snippets crashed:', error)
-    }
-    render() {
-      if (this.state.crashed) return null
-      return this.props.children
-    }
-  }
-
-  /** 草稿桥：面板插入用。挂 conversation.input.dock——该槽位确认注入
-   * useInput / inputActions（followup 同款验证过）；composer.dock 不注入
-   * 这些 props，在那边调用会 render 阶段抛错并连带整个槽位树崩掉
-   * （0.1.0 实测根因：片段按钮随之消失且无 effect 日志）。 */
-  function SnippetsDraftBridge({ useInput, inputActions }) {
-    const draft = useInput((state) => state.draft)
-    React.useEffect(() => {
-      window.__dshSuperinputDraft = () => (typeof draft === 'string' ? draft : '')
-      window.__dshSuperinputSetDraft = (value) => {
-        try { inputActions?.setDraft?.(value) } catch { /* ignore */ }
-      }
-    }, [draft, inputActions])
-    return null
-  }
-
-  return {
-    inject: ['slots'],
-    apply(ctx) {
-      ensureStyle()
-      if (typeof document !== 'undefined') startCapture()
-      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
-        name: 'conversation.composer.dock',
-        id: 'dsh-superinput-snippets-btn',
-        order: 3,
-      }, SnippetsButton))
-      // 草稿桥挂 input.dock（props 注入 see SnippetsDraftBridge 注释）。
-      ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
-        name: 'conversation.input.dock',
-        id: 'dsh-superinput-snippets-bridge',
-        order: 95,
-      }, SnippetsDraftBridge))
-    },
-  }
-}
-
 /* dsh-superinput · prompts 模块客户端：模板库入口 + 面板。 */
 function createPromptsClient(require) {
   const React = require('react')
@@ -4618,6 +4401,17 @@ function createPromptsClient(require) {
 .dsh-cp-action:hover { color: var(--dsw-alias-label-primary); }
 .dsh-cp-action.primary { color: #fff; background: #3a83f7; border-color: transparent; }
 .dsh-cp-action.primary:hover { background: #4f8ef9; }
+.dsh-cp-selmenu { display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.85));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.1));
+}
+.dsh-cp-selitem { border: none; background: transparent; text-align: left; padding: 5px 10px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.92)); border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; white-space: nowrap; }
+.dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
+.dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
+  background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
 `
 
   function ensureStyle() {
@@ -4638,10 +4432,10 @@ function createPromptsClient(require) {
     } catch { return null }
   }
 
-  /** 异常留痕：走 snippets /diag（服务端落 snippets-debug.log），prompts 自己没有 diag 端点。 */
+  /** 异常留痕：走 prompts /diag（0.4.0 起套件统一通道，落 superinput-debug.log）。 */
   function report(message) {
     try {
-      void fetch('/api/dsh-superinput/snippets/diag', {
+      void fetch('/api/dsh-superinput/prompts/diag', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: `prompts: ${String(message).slice(0, 300)}` }),
@@ -4695,6 +4489,103 @@ function createPromptsClient(require) {
     } catch (error) {
       report(`slash insert failed: ${error?.stack ?? error}`)
     }
+  }
+
+  /** 划选正文文字浮出「存」按钮 → 存为模板 / 存为片段（两个库的收集入口）。 */
+  function installSelectionSaver() {
+    if (typeof document === 'undefined') return
+    let host = null
+    let hideTimer = 0
+
+    const ensureHost = () => {
+      if (host?.isConnected) return host
+      if (host) host.remove()
+      host = document.createElement('div')
+      host.setAttribute('data-dsh-superinput-portal', 'selection')
+      host.style.cssText = 'position:fixed;z-index:1150;display:none;'
+      document.body.appendChild(host)
+      return host
+    }
+    const hide = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+      if (host) host.style.display = 'none'
+    }
+    const toast = (text) => {
+      const el = ensureHost()
+      const div = document.createElement('div')
+      div.className = 'dsh-cp-toast'
+      div.textContent = text
+      el.replaceChildren(div) // 原生 DOM——h() 产物是 React 对象，replaceChildren 会把它强转成 "[object Object]"
+      el.style.left = '50%'
+      el.style.top = '72px'
+      el.style.transform = 'translateX(-50%)'
+      el.style.display = 'block'
+      if (hideTimer) clearTimeout(hideTimer)
+      hideTimer = setTimeout(hide, 1800)
+    }
+    const save = async (text) => {
+      const title = text.replace(/\s+/g, ' ').trim().slice(0, 40)
+      hide()
+      try {
+        const res = await fetch('/api/dsh-superinput/prompts/save', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title, body: text }),
+        })
+        const data = res.ok ? await res.json() : null
+        toast(data?.ok ? '已存为模板' : '保存失败')
+      } catch {
+        toast('保存失败')
+      }
+    }
+
+    // 选区变化驱动（dblclick 选词在 mouseup 之后才成形，selectionchange 才是可靠信号）
+    let showTimer = 0
+    document.addEventListener('selectionchange', () => {
+      try {
+        if (showTimer) { clearTimeout(showTimer); showTimer = 0 }
+        const selection = window.getSelection?.()
+        const text = String(selection ?? '').trim()
+        if (!text || text.length < 4 || !selection.rangeCount) { hide(); return }
+        showTimer = setTimeout(() => {
+          try {
+            const sel = window.getSelection?.()
+            const current = String(sel ?? '').trim()
+            if (!current || current.length < 4 || !sel.rangeCount) { hide(); return }
+            const node = sel.anchorNode
+            const el = node instanceof Element ? node : node?.parentElement
+            // 只收对话正文：跳过输入区和我们自己的弹层
+            if (!el || el.closest('[data-dsh-superinput-portal]') || el.closest('[contenteditable="true"], textarea, input')) { hide(); return }
+            const rect = sel.getRangeAt(0).getBoundingClientRect()
+            if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
+            const container = ensureHost()
+            container.style.left = `${Math.min(Math.max(8, rect.right - 24), window.innerWidth - 130)}px`
+            container.style.top = `${Math.max(8, rect.top - 74)}px`
+            container.style.transform = ''
+            container.style.display = 'block'
+            const menu = document.createElement('div')
+            menu.className = 'dsh-cp-selmenu'
+            menu.addEventListener('mousedown', (e) => e.stopPropagation())
+            const mkItem = (label, kind) => {
+              const b = document.createElement('button')
+              b.className = 'dsh-cp-selitem'
+              b.textContent = label
+              b.addEventListener('click', () => { void save(current) })
+              return b
+            }
+            menu.append(mkItem('存为模板'))
+            container.replaceChildren(menu)
+          } catch { /* ignore */ }
+        }, 250)
+      } catch { /* ignore */ }
+    })
+    document.addEventListener('mousedown', (e) => {
+      if (host?.style.display === 'block' && !e.target.closest?.('[data-dsh-superinput-portal="selection"]')) hide()
+    }, true)
+    window.addEventListener('scroll', hide, true)
+    document.addEventListener('selectionchange', () => {
+      if (!String(window.getSelection?.() ?? '').trim()) hide()
+    })
   }
 
   function PromptsPanel({ anchor, onClose, onSyncSlash }) {
@@ -4980,7 +4871,7 @@ function createPromptsClient(require) {
       : null
   }
 
-  /** 错误边界：面板渲染崩溃时留痕（走 snippets /diag）而不是无声消失。 */
+  /** 错误边界：面板渲染崩溃时留痕（走 prompts /diag）而不是无声消失。 */
   class PromptsBoundary extends React.Component {
     constructor(props) { super(props); this.state = { crashed: false } }
     static getDerivedStateFromError() { return { crashed: true } }
@@ -5006,6 +4897,7 @@ function createPromptsClient(require) {
     inject: ['slots'],
     apply(ctx) {
       ensureStyle()
+      installSelectionSaver()
 
       /* / 斜杠命令同步：标记了 slash 的模板注册进官方 / 菜单（action 命令）。
        * commandUi 是官方 ui-commands 的客户端服务；旧宿主没有它时 inject 不解析，整块跳过。
@@ -5059,6 +4951,280 @@ function createPromptsClient(require) {
         id: 'dsh-superinput-prompts-btn',
         order: 4,
       }, (props) => h(PromptsBoundary, null, h(PromptsButton, { ...props, onSyncSlash: syncSlash }))))
+    },
+  }
+}
+
+/* dsh-superinput · outline 模块客户端：长会话消息目录（按用户消息列大纲，点击滚动跳转）。 */
+function createOutlineClient(require) {
+  const React = require('react')
+  const { createPortal } = require('react-dom')
+  const h = React.createElement
+
+  const STYLE_ID = 'dsh-superinput-outline-style'
+  const ENDPOINT = '/api/dsh-superinput/export'
+
+  const CSS = `
+.dsh-co-btn {
+  display: inline-flex; align-items: center;
+  border: none !important; background: transparent !important; box-shadow: none !important;
+  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72)) !important;
+  font-size: 12px; line-height: 20px; padding: 1px 8px;
+  border-radius: var(--dsw-radius-sm, 6px); cursor: default; user-select: none;
+}
+.dsh-co-btn:hover { background: var(--dsw-alias-interactive-bg-hover) !important; color: var(--dsw-alias-label-primary) !important; }
+.dsh-co-panel {
+  position: fixed; z-index: 1100; box-sizing: border-box;
+  border: 0; border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.45));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  width: min(360px, 100vw - 24px);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.04), 0 0 20px 0 rgba(0, 0, 0, 0.05));
+  padding: 10px; display: flex; flex-direction: column; gap: 6px;
+}
+.dsh-co-list { display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
+.dsh-co-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; }
+.dsh-co-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-co-idx { flex: 0 0 auto; font-size: 10px; line-height: 16px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.dsh-co-text { flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-co-time { flex: 0 0 auto; font-size: 10px; line-height: 16px; color: var(--dsw-alias-label-tertiary); }
+.dsh-co-empty { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); padding: 12px 6px; text-align: center; }
+`
+
+  function ensureStyle() {
+    if (typeof document === 'undefined') return
+    if (document.getElementById(STYLE_ID)) return
+    const style = document.createElement('style')
+    style.id = STYLE_ID
+    style.textContent = CSS
+    document.head.appendChild(style)
+  }
+
+  function report(message) {
+    try {
+      void fetch('/api/dsh-superinput/prompts/diag', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: `outline: ${String(message).slice(0, 300)}` }),
+      }).catch(() => {})
+    } catch { /* ignore */ }
+  }
+
+  /** 在会话 DOM 里找含片段的文本节点并滚到视中；找不到返回 false。 */
+  function scrollToSnippet(snippet) {
+    const needle = snippet.replace(/\s+/g, ' ').slice(0, 24)
+    if (!needle) return false
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        const el = node.parentElement
+        if (!el) return NodeFilter.FILTER_REJECT
+        // 跳过我们自己的弹层，避免滚到自己
+        if (el.closest('[data-dsh-superinput-portal]')) return NodeFilter.FILTER_REJECT
+        return node.textContent.replace(/\s+/g, ' ').includes(needle)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT
+      },
+    })
+    const hit = walker.nextNode()
+    if (!hit) return false
+    hit.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return true
+  }
+
+  function OutlinePanel({ sessionId, onClose, pos }) {
+    const [items, setItems] = React.useState(null)
+
+    React.useEffect(() => {
+      let alive = true
+      if (!sessionId) { setItems([]); return undefined }
+      void (async () => {
+        try {
+          const res = await fetch(`${ENDPOINT}/outline?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' })
+          const data = res.ok ? await res.json() : null
+          if (alive) setItems(Array.isArray(data?.items) ? data.items : [])
+        } catch (error) {
+          report(`outline fetch failed: ${error?.stack ?? error}`)
+          if (alive) setItems([])
+        }
+      })()
+      return () => { alive = false }
+    }, [sessionId])
+
+    React.useEffect(() => {
+      const onKey = (e) => { if (e.key === 'Escape') onClose() }
+      const onClick = (e) => {
+        if (!e.target.closest?.('.dsh-co-panel') && !e.target.closest?.('.dsh-co-btn')) onClose()
+      }
+      document.addEventListener('keydown', onKey)
+      document.addEventListener('mousedown', onClick, true)
+      return () => {
+        document.removeEventListener('keydown', onKey)
+        document.removeEventListener('mousedown', onClick, true)
+      }
+    }, [onClose])
+
+    const jump = (text) => {
+      const ok = scrollToSnippet(text)
+      if (ok) onClose()
+    }
+
+    const portalHost = React.useRef(null)
+    if (!portalHost.current && typeof document !== 'undefined' && document.body) {
+      try {
+        portalHost.current = document.createElement('div')
+        portalHost.current.setAttribute('data-dsh-superinput-portal', 'outline')
+        document.body.appendChild(portalHost.current)
+      } catch { portalHost.current = null }
+    }
+    React.useEffect(() => () => { portalHost.current?.remove() }, [])
+
+    if (!portalHost.current) return null
+    return createPortal(h('div', { className: 'dsh-co-panel', style: pos ?? { display: 'none' } },
+      h('div', { className: 'dsh-co-list' },
+        items === null
+          ? h('div', { className: 'dsh-co-empty' }, '加载中…')
+          : items.length === 0
+            ? h('div', { className: 'dsh-co-empty' }, '还没有用户消息')
+            : items.map((item) => h('div', {
+              className: 'dsh-co-row', key: `${item.i}:${item.at ?? ''}`,
+              onClick: () => jump(item.text),
+            },
+              h('span', { className: 'dsh-co-idx' }, `#${item.i}`),
+              h('span', { className: 'dsh-co-text' }, item.text),
+              h('span', { className: 'dsh-co-time' }, item.at
+                ? new Date(item.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                : ''))))), portalHost.current)
+  }
+
+  function OutlineButton({ sessionId }) {
+    const [open, setOpen] = React.useState(false)
+    const btnRef = React.useRef(null)
+    const [pos, setPos] = React.useState(null)
+    React.useEffect(() => {
+      if (!open || !btnRef.current) return
+      const rect = btnRef.current.getBoundingClientRect()
+      const width = Math.min(360, window.innerWidth - 24)
+      setPos({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        top: Math.max(8, rect.top - 8),
+        transform: 'translateY(-100%)',
+      })
+    }, [open])
+    return h('span', { ref: btnRef, style: { display: 'inline-flex', position: 'relative' } },
+      h('button', {
+        className: 'dsh-co-btn',
+        title: '消息目录（按你的提问跳转）',
+        onClick: () => setOpen((v) => !v),
+      }, '目录'),
+      open ? h(OutlinePanel, { sessionId, onClose: () => setOpen(false), pos }) : null)
+  }
+
+  /** 错误边界：崩溃留痕而不是无声消失。 */
+  class OutlineBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { crashed: false } }
+    static getDerivedStateFromError() { return { crashed: true } }
+    componentDidCatch(error) {
+      report(`boundary: ${String(error?.stack ?? error).slice(0, 400)}`)
+    }
+    render() { return this.state.crashed ? null : this.props.children }
+  }
+
+  return {
+    inject: ['slots'],
+    apply(ctx) {
+      ensureStyle()
+      ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+        name: 'conversation.composer.dock',
+        id: 'dsh-superinput-outline-btn',
+        order: 6,
+      }, (props) => h(OutlineBoundary, null, h(OutlineButton, props))))
+    },
+  }
+}
+
+/* dsh-superinput · exporter 模块客户端：会话标题栏「导出 Markdown」按钮。 */
+function createExporterClient(require) {
+  const React = require('react')
+  const h = React.createElement
+
+  const ENDPOINT = '/api/dsh-superinput/export'
+
+  /** 异常留痕：走 prompts /diag（套件统一通道）。 */
+  function report(message) {
+    try {
+      void fetch('/api/dsh-superinput/prompts/diag', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: `exporter: ${String(message).slice(0, 300)}` }),
+      }).catch(() => {})
+    } catch { /* ignore */ }
+  }
+
+  function ExportButton({ sessionId }) {
+    const [busy, setBusy] = React.useState(false)
+    const [done, setDone] = React.useState(false)
+
+    const download = async () => {
+      if (busy || !sessionId) return
+      setBusy(true)
+      try {
+        const res = await fetch(`${ENDPOINT}/markdown?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(`export ${res.status}`)
+        const blob = new Blob([await res.text()], { type: 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `dsh-session-${new Date().toISOString().slice(0, 10)}.md`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 5000)
+        setDone(true)
+        setTimeout(() => setDone(false), 2000)
+      } catch (error) {
+        report(`export failed: ${error?.stack ?? error}`)
+      } finally {
+        setBusy(false)
+      }
+    }
+
+    return h('button', {
+      type: 'button',
+      title: '导出会话 Markdown',
+      'aria-label': '导出会话 Markdown',
+      disabled: busy || !sessionId,
+      onClick: () => { void download() },
+      style: {
+        width: 28, height: 28, padding: 0,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 13, lineHeight: '16px',
+        color: done ? '#22c55e' : 'var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72))',
+        background: 'transparent', border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)',
+        cursor: 'pointer', opacity: sessionId ? 1 : 0.4,
+      },
+      onMouseEnter: (e) => { e.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.07))' },
+      onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent' },
+    }, busy ? '…' : done ? '✓' : '⬇')
+  }
+
+  /** 错误边界：崩溃留痕而不是无声消失。 */
+  class ExportBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { crashed: false } }
+    static getDerivedStateFromError() { return { crashed: true } }
+    componentDidCatch(error) {
+      report(`boundary: ${String(error?.stack ?? error).slice(0, 400)}`)
+    }
+    render() { return this.state.crashed ? null : this.props.children }
+  }
+
+  return {
+    inject: ['slots'],
+    apply(ctx) {
+      ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+        name: 'conversation.session.header.actions',
+        id: 'dsh-superinput-export-btn',
+        order: -6,
+      }, (props) => h(ExportBoundary, null, h(ExportButton, props))))
     },
   }
 }
@@ -5151,16 +5317,6 @@ function createHubClient(require) {
       endpoint: '/api/dsh-power-picker/settings',
       fields: [
         { key: 'enabled', label: '启用', type: 'bool' },
-      ],
-    },
-    {
-      key: 'snippets',
-      label: '片段管理',
-      endpoint: '/api/dsh-superinput/snippets/settings',
-      fields: [
-        { key: 'captureEnabled', label: '自动捕获', type: 'bool' },
-        { key: 'maxItems', label: '上限', type: 'number', min: 20, max: 2000 },
-        { key: 'minChars', label: '最小字数', type: 'number', min: 1, max: 100 },
       ],
     },
     {
@@ -5302,15 +5458,16 @@ window.__ModuleLoader__.load({
       ['enhancer', createEnhancerClient],
       ['followup', createFollowupClient],
       ['voice', createVoiceClient],
-      ['snippets', createSnippetsClient],
       ['prompts', createPromptsClient],
+      ['outline', createOutlineClient],
+      ['exporter', createExporterClient],
       ['hub', createHubClient],
     ]
-    // 模块异常上报：console 不落盘，失败必须走 snippets /diag 留痕。
+    // 模块异常上报：console 不落盘，失败必须走 prompts /diag 留痕。
     const reportModuleError = (key, when, error) => {
       console.error(`[dsh-superinput] client module "${key}" ${when}:`, error)
       try {
-        void fetch('/api/dsh-superinput/snippets/diag', {
+        void fetch('/api/dsh-superinput/prompts/diag', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ message: `client module "${key}" ${when}: ${String(error?.stack ?? error).slice(0, 400)}` }),

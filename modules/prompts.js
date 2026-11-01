@@ -1,13 +1,13 @@
 /**
  * dsh-superinput · prompts 模块（提示词模板库）
  *
- * 和 snippets 互补：snippets 自动捕获窗口内复制，prompts 是手动保存的常用模板。
+ * prompts 是手动保存的常用模板（划选正文可一键存入）。
  * 支持 {{变量}} 占位符，插入时由前端弹窗填值；服务端只存原文，不做替换。
  *
  * 存储 ~/.dsh/storages/dsh-superinput/prompts.json（结构 { items: [...] }）。
  */
 import Schema from '@deepseek-ai/schemastery'
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, mkdirSync, appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -16,6 +16,7 @@ export const inject = []
 
 const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
 const STORE_PATH = join(STORE_DIR, 'prompts.json')
+const CLIENT_DIAG = join(homedir(), '.dsh', 'superinput-debug.log')
 
 export const Config = Schema.object({
   enabled: Schema.boolean().default(true).description('启用提示词模板库'),
@@ -239,6 +240,20 @@ export function apply(ctx, config) {
           if (body.maxItems !== undefined) { const v = Number(body.maxItems); if (Number.isFinite(v)) live.maxItems = Math.min(5000, Math.max(20, Math.round(v))) }
           persistSettings()
           send(200, { ...live })
+          return
+        }
+        // 套件客户端统一诊断通道（0.4.0 起从 snippets 迁来）：落
+        // ~/.dsh/superinput-debug.log，与服务端 trace 同文件便于一次排查。
+        if (path === '/diag' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          try {
+            let message = raw
+            try { message = JSON.parse(raw).message ?? raw } catch { /* 纯文本也收 */ }
+            mkdirSync(dirname(CLIENT_DIAG), { recursive: true })
+            appendFileSync(CLIENT_DIAG, `${new Date().toISOString()} ${String(message).slice(0, 500)}\n`, 'utf8')
+          } catch { /* 落盘失败不影响应答 */ }
+          send(200, { ok: true })
           return
         }
         if (path === '/list' && req.method === 'GET') {

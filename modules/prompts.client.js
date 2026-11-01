@@ -107,6 +107,17 @@ function createPromptsClient(require) {
 .dsh-cp-action:hover { color: var(--dsw-alias-label-primary); }
 .dsh-cp-action.primary { color: #fff; background: #3a83f7; border-color: transparent; }
 .dsh-cp-action.primary:hover { background: #4f8ef9; }
+.dsh-cp-selmenu { display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.85));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.1));
+}
+.dsh-cp-selitem { border: none; background: transparent; text-align: left; padding: 5px 10px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.92)); border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; white-space: nowrap; }
+.dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
+.dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
+  background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
 `
 
   function ensureStyle() {
@@ -127,10 +138,10 @@ function createPromptsClient(require) {
     } catch { return null }
   }
 
-  /** 异常留痕：走 snippets /diag（服务端落 snippets-debug.log），prompts 自己没有 diag 端点。 */
+  /** 异常留痕：走 prompts /diag（0.4.0 起套件统一通道，落 superinput-debug.log）。 */
   function report(message) {
     try {
-      void fetch('/api/dsh-superinput/snippets/diag', {
+      void fetch('/api/dsh-superinput/prompts/diag', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: `prompts: ${String(message).slice(0, 300)}` }),
@@ -184,6 +195,103 @@ function createPromptsClient(require) {
     } catch (error) {
       report(`slash insert failed: ${error?.stack ?? error}`)
     }
+  }
+
+  /** 划选正文文字浮出「存」按钮 → 存为模板 / 存为片段（两个库的收集入口）。 */
+  function installSelectionSaver() {
+    if (typeof document === 'undefined') return
+    let host = null
+    let hideTimer = 0
+
+    const ensureHost = () => {
+      if (host?.isConnected) return host
+      if (host) host.remove()
+      host = document.createElement('div')
+      host.setAttribute('data-dsh-superinput-portal', 'selection')
+      host.style.cssText = 'position:fixed;z-index:1150;display:none;'
+      document.body.appendChild(host)
+      return host
+    }
+    const hide = () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+      if (host) host.style.display = 'none'
+    }
+    const toast = (text) => {
+      const el = ensureHost()
+      const div = document.createElement('div')
+      div.className = 'dsh-cp-toast'
+      div.textContent = text
+      el.replaceChildren(div) // 原生 DOM——h() 产物是 React 对象，replaceChildren 会把它强转成 "[object Object]"
+      el.style.left = '50%'
+      el.style.top = '72px'
+      el.style.transform = 'translateX(-50%)'
+      el.style.display = 'block'
+      if (hideTimer) clearTimeout(hideTimer)
+      hideTimer = setTimeout(hide, 1800)
+    }
+    const save = async (text) => {
+      const title = text.replace(/\s+/g, ' ').trim().slice(0, 40)
+      hide()
+      try {
+        const res = await fetch('/api/dsh-superinput/prompts/save', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title, body: text }),
+        })
+        const data = res.ok ? await res.json() : null
+        toast(data?.ok ? '已存为模板' : '保存失败')
+      } catch {
+        toast('保存失败')
+      }
+    }
+
+    // 选区变化驱动（dblclick 选词在 mouseup 之后才成形，selectionchange 才是可靠信号）
+    let showTimer = 0
+    document.addEventListener('selectionchange', () => {
+      try {
+        if (showTimer) { clearTimeout(showTimer); showTimer = 0 }
+        const selection = window.getSelection?.()
+        const text = String(selection ?? '').trim()
+        if (!text || text.length < 4 || !selection.rangeCount) { hide(); return }
+        showTimer = setTimeout(() => {
+          try {
+            const sel = window.getSelection?.()
+            const current = String(sel ?? '').trim()
+            if (!current || current.length < 4 || !sel.rangeCount) { hide(); return }
+            const node = sel.anchorNode
+            const el = node instanceof Element ? node : node?.parentElement
+            // 只收对话正文：跳过输入区和我们自己的弹层
+            if (!el || el.closest('[data-dsh-superinput-portal]') || el.closest('[contenteditable="true"], textarea, input')) { hide(); return }
+            const rect = sel.getRangeAt(0).getBoundingClientRect()
+            if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
+            const container = ensureHost()
+            container.style.left = `${Math.min(Math.max(8, rect.right - 24), window.innerWidth - 130)}px`
+            container.style.top = `${Math.max(8, rect.top - 74)}px`
+            container.style.transform = ''
+            container.style.display = 'block'
+            const menu = document.createElement('div')
+            menu.className = 'dsh-cp-selmenu'
+            menu.addEventListener('mousedown', (e) => e.stopPropagation())
+            const mkItem = (label, kind) => {
+              const b = document.createElement('button')
+              b.className = 'dsh-cp-selitem'
+              b.textContent = label
+              b.addEventListener('click', () => { void save(current) })
+              return b
+            }
+            menu.append(mkItem('存为模板'))
+            container.replaceChildren(menu)
+          } catch { /* ignore */ }
+        }, 250)
+      } catch { /* ignore */ }
+    })
+    document.addEventListener('mousedown', (e) => {
+      if (host?.style.display === 'block' && !e.target.closest?.('[data-dsh-superinput-portal="selection"]')) hide()
+    }, true)
+    window.addEventListener('scroll', hide, true)
+    document.addEventListener('selectionchange', () => {
+      if (!String(window.getSelection?.() ?? '').trim()) hide()
+    })
   }
 
   function PromptsPanel({ anchor, onClose, onSyncSlash }) {
@@ -469,7 +577,7 @@ function createPromptsClient(require) {
       : null
   }
 
-  /** 错误边界：面板渲染崩溃时留痕（走 snippets /diag）而不是无声消失。 */
+  /** 错误边界：面板渲染崩溃时留痕（走 prompts /diag）而不是无声消失。 */
   class PromptsBoundary extends React.Component {
     constructor(props) { super(props); this.state = { crashed: false } }
     static getDerivedStateFromError() { return { crashed: true } }
@@ -495,6 +603,7 @@ function createPromptsClient(require) {
     inject: ['slots'],
     apply(ctx) {
       ensureStyle()
+      installSelectionSaver()
 
       /* / 斜杠命令同步：标记了 slash 的模板注册进官方 / 菜单（action 命令）。
        * commandUi 是官方 ui-commands 的客户端服务；旧宿主没有它时 inject 不解析，整块跳过。

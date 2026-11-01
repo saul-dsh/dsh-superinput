@@ -2,6 +2,28 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-11-01
+
+### 新增三模块 + 两处既有模块增强；移除草稿与片段（用户裁定）
+
+- **outline（消息目录）**：状态行「目录」按钮 → 按用户消息列大纲（/outline
+  端点直读会话日志），点击 TreeWalker 定位正文滚动跳转。
+- **exporter（会话导出）**：标题栏 ⬇ 按钮 → /markdown 端点把整会话（用户+
+  助手，连续助手快照去重）导出为 Markdown 下载；真机用真实会话日志验证
+  （outline 4 条 / md 6527 字节 / 下载头正确）。
+- **prompts 划选存模板**：对话正文划选后浮「存为模板」（selectionchange
+  驱动，dblclick 选词后才成形），原生 DOM 渲染（React h() 产物过
+  replaceChildren 会被强转成 "[object Object]"，真机踩过）。
+- **cost 预算超限系统通知**：预算跨线 100% 时每周期弹一次系统通知（80%
+  只走既有 UI 变色）。
+- **picker 模型行价格标记**：按 dsh-cost /prices 档价算相对当前模型的 ×N
+  倍数（>1 暖色），10 分钟缓存，取不到不显示。
+- **移除 drafts（草稿快照/↑召回）与 snippets（片段管理器）**：用户裁定
+  没什么用。诊断通道从 snippets /diag 迁到 prompts /diag（落
+  superinput-debug.log）；hub 总览同步移除片段区；既有 snippets.json
+  数据保留不再使用。
+- 冒烟扩展：exporter 端点（缺参 400 / 未知会话 404）+ 九模块 apply。
+
 ## [0.3.4] - 2026-11-01
 
 ### 修复：/ 模板命令插入后草稿残留触发行（真机验证发现）
