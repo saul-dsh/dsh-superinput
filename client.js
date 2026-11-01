@@ -4438,7 +4438,7 @@ function createPromptsClient(require) {
 .dsh-cp-action:hover { color: var(--dsw-alias-label-primary); }
 .dsh-cp-action.primary { color: #fff; background: #3a83f7; border-color: transparent; }
 .dsh-cp-action.primary:hover { background: #4f8ef9; }
-.dsh-cp-selmenu { display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--dsw-radius-lg, 12px);
+.dsh-cp-selmenu { display: flex; flex-direction: row; align-items: center; gap: 2px; padding: 3px; border-radius: var(--dsw-radius-lg, 12px);
   background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.85));
   backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
@@ -4620,8 +4620,9 @@ function createPromptsClient(require) {
             const rect = sel.getRangeAt(0).getBoundingClientRect()
             if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
             const container = ensureHost()
-            container.style.left = `${Math.min(Math.max(8, rect.right - 24), window.innerWidth - 130)}px`
-            container.style.top = `${Math.max(8, rect.top - 74)}px`
+            // 横排菜单（复制 / 添加到对话 / 存为模板 ≈210px）：左缘对齐选区，右侧防溢出
+            container.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 226))}px`
+            container.style.top = `${Math.max(8, rect.top - 44)}px`
             container.style.transform = ''
             container.style.display = 'block'
             const menu = document.createElement('div')
