@@ -4683,8 +4683,15 @@ function createPromptsClient(require) {
         report('slash insert skipped: draft bridge missing')
         return
       }
+      // action 执行时草稿里还留着刚敲的命令行（/e2e），官方壳清 token 与我们的
+      // 写入有时序竞争——首行是无空格的 /xxx 就剥掉，两种时序下都只留正文。
       const current = String(window.__dshSuperinputDraft?.() ?? '')
-      set(current ? `${current}\n${out}` : out)
+      let base = current
+      const firstLine = current.split('\n')[0] ?? ''
+      if (current && firstLine.startsWith('/') && !firstLine.includes(' ')) {
+        base = current.slice(firstLine.length).replace(/^\n+/, '')
+      }
+      set(base ? `${base}\n${out}` : out)
     } catch (error) {
       report(`slash insert failed: ${error?.stack ?? error}`)
     }
