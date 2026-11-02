@@ -138,6 +138,9 @@ function createPromptsClient(require) {
 .dsh-cp-ctxpill-btn { flex: 0 0 auto; width: 16px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   border: none; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1; border-radius: 3px; cursor: pointer; }
 .dsh-cp-ctxpill-btn:hover { color: var(--dsw-alias-label-primary); background: rgba(255, 255, 255, 0.1); }
+.dsh-cp-ctxpill-excluded { opacity: .55; }
+.dsh-cp-ctxpill-excluded .dsh-cp-ctxpill-label { text-decoration: line-through; }
+.dsh-cp-ctxpill-comment { cursor: pointer; }
 .dsh-cp-ctxpill-open { outline: 1px solid #3a83f7; }
 /* 评论编辑浮层：Trae 在采集时输入评论——这里添加后立即展开，全文预览+输入。 */
 .dsh-cp-ctxopen { box-sizing: border-box; flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px;
@@ -201,7 +204,8 @@ function createPromptsClient(require) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          items: items.map(({ text, comment }) => ({ text, comment })),
+          // 排除项（👁）不随发送：Trae 的 eye/eyeClosed 同语义——保留在列表但不注入
+          items: items.filter((item) => !item.excluded).map(({ text, comment }) => ({ text, comment })),
         }),
         keepalive: true,
       })
@@ -327,8 +331,11 @@ function createPromptsClient(require) {
       const addContext = window.__dshSuperinputAddContext
       if (typeof addContext === 'function') {
         try {
-          const ok = addContext(text, anchorEl)
-          toast(ok ? '已添加到对话' : `最多添加 ${CONTEXT_MAX} 段对话内容`)
+          const status = addContext(text, anchorEl)
+          toast(status === 'added' ? '已添加到对话'
+            : status === 'dup' ? '该选段已在列表中'
+              : status === 'full' ? `最多添加 ${CONTEXT_MAX} 段对话内容`
+                : '添加失败')
           return
         } catch { /* 回退到草稿桥 */ }
       }
@@ -729,7 +736,18 @@ function createPromptsClient(require) {
       if (!sessionId) return undefined
       const add = (text, anchorEl) => {
         const clean = String(text ?? '').trim()
-        if (!clean || itemsRef.current.length >= CONTEXT_MAX) return false
+        if (!clean) return 'empty'
+        // Trae addContext 按 id 去重：同一段选文不重复入列，改为展开已有
+        // 条目让用户直接补评论。
+        const existing = itemsRef.current.find((entry) => entry.text === clean)
+        if (existing) {
+          const next = itemsRef.current.map((entry) => entry.id === existing.id ? { ...entry, open: true } : entry)
+          itemsRef.current = next
+          setItems(next)
+          snapshotContext(sessionId, next)
+          return 'dup'
+        }
+        if (itemsRef.current.length >= CONTEXT_MAX) return 'full'
         // 源锚点：Trae 的 payload 带源位置（点击卡片 revealRangeInCenter）——
         // 这里存选区起始元素的弱引用，点 pill 跳回源文并闪烁；断线（重渲染
         // 重建节点）时跳转静默降级为无操作。
@@ -739,13 +757,14 @@ function createPromptsClient(require) {
           id: `ctx-${Date.now().toString(36)}-${contextSeq += 1}`,
           text: clean,
           comment: '',
+          excluded: false,
           open: true,
           anchor: anchorEl instanceof Element ? new WeakRef(anchorEl) : null,
         }]
         itemsRef.current = next
         setItems(next)
         snapshotContext(sessionId, next)
-        return true
+        return 'added'
       }
       window.__dshSuperinputAddContext = add
       return () => {
@@ -819,7 +838,7 @@ function createPromptsClient(require) {
     return h('div', { className: 'dsh-cp-ctxbar' },
       items.map((item, index) => h(React.Fragment, { key: item.id },
         h('div', {
-          className: `dsh-cp-ctxpill${item.open ? ' dsh-cp-ctxpill-open' : ''}`,
+          className: `dsh-cp-ctxpill${item.open ? ' dsh-cp-ctxpill-open' : ''}${item.excluded ? ' dsh-cp-ctxpill-excluded' : ''}`,
           title: item.text,
           onClick: () => activate(item),
         },
@@ -828,7 +847,11 @@ function createPromptsClient(require) {
           item.comment
             ? [
               h('span', { className: 'dsh-cp-ctxpill-sep', key: 'sep' }, '·'),
-              h('span', { className: 'dsh-cp-ctxpill-comment', key: 'cmt' },
+              h('span', {
+                className: 'dsh-cp-ctxpill-comment', key: 'cmt',
+                title: item.comment,
+                onClick: (event) => { event.stopPropagation(); update(item.id, { open: true }) },
+              },
                 h('svg', { className: 'dsh-cp-ctxpill-bubble', viewBox: '0 0 16 16', 'aria-hidden': true },
                   h('path', {
                     d: 'M8 2.5c3.1 0 5.7 2.1 5.7 4.8S11.1 12.1 8 12.1c-.8 0-1.5-.1-2.2-.4L3.4 13l.7-2.2C2.8 9.9 2.3 8.7 2.3 7.3c0-2.7 2.6-4.8 5.7-4.8z',
@@ -837,6 +860,12 @@ function createPromptsClient(require) {
                 h('span', { className: 'dsh-cp-ctxpill-comment-text' }, item.comment)),
             ]
             : null,
+          h('button', {
+            className: 'dsh-cp-ctxpill-btn',
+            title: item.excluded ? '已排除，点击恢复随发送' : '临时排除（保留但不随发送）',
+            'aria-label': item.excluded ? '恢复随发送' : '临时排除',
+            onClick: (event) => { event.stopPropagation(); update(item.id, { excluded: !item.excluded }) },
+          }, item.excluded ? '🚫' : '👁'),
           h('button', {
             className: 'dsh-cp-ctxpill-btn',
             title: item.comment ? '编辑评论' : '添加评论',
