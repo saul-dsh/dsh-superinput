@@ -4449,6 +4449,33 @@ function createPromptsClient(require) {
 .dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
 .dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
   background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+.dsh-cp-ctxbar { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; padding: 0 12px 8px; }
+/* 引用 pill：Trae 同款（.chat-attached-context-attachment）——矮行、细描边、
+   11px 字、单行省略；点 pill 跳回源文，💬 展开/收起评论，× 移除。 */
+.dsh-cp-ctxpill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 20px; max-width: 100%;
+  padding: 0 4px 0 6px; border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
+  border-radius: 4px; background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.04)); cursor: pointer;
+  transition: background .14s ease, border-color .14s ease; }
+.dsh-cp-ctxpill:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); border-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.2)); }
+.dsh-cp-ctxpill-label { font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-cp-ctxpill[data-has-comment="true"] .dsh-cp-ctxpill-label { color: var(--dsw-alias-label-primary); }
+.dsh-cp-ctxpill-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #3a83f7; }
+.dsh-cp-ctxpill-btn { flex: 0 0 auto; width: 16px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1; border-radius: 3px; cursor: pointer; }
+.dsh-cp-ctxpill-btn:hover { color: var(--dsw-alias-label-primary); background: rgba(255, 255, 255, 0.1); }
+.dsh-cp-ctxpill-open { border-color: #3a83f7; }
+/* 展开行：全文预览 + 评论输入（Trae 的评论在采集时输入；这里点 💬 展开，信息密度更高）。 */
+.dsh-cp-ctxopen { box-sizing: border-box; flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px;
+  padding: 6px 8px; border: 1px solid #3a83f7; border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.06)); }
+.dsh-cp-ctxopen-text { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.dsh-cp-ctxopen input { box-sizing: border-box; width: 100%; padding: 3px 6px; font-size: 11px; line-height: 16px;
+  color: var(--dsw-alias-label-primary); background: transparent; border: 0.5px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
+  border-radius: var(--dsw-radius-sm, 6px); outline: none; font-family: inherit; }
+.dsh-cp-ctxopen input:focus { border-color: #3a83f7; }
+/* 点击 pill 跳源时对源元素的闪烁高亮。 */
+.dsh-cp-flash { outline: 2px solid #3a83f7 !important; outline-offset: 1px; border-radius: 3px; transition: outline-color .3s ease; }
 `
 
   function ensureStyle() {
@@ -4478,6 +4505,45 @@ function createPromptsClient(require) {
         body: JSON.stringify({ message: `prompts: ${String(message).slice(0, 300)}` }),
       }).catch(() => {})
     } catch { /* ignore */ }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 划选上下文：会话级暂存 + 服务端 /context 同步                        */
+  /* ------------------------------------------------------------------ */
+
+  const CONTEXT_MAX = 8
+  let contextSeq = 0
+  const contextBySession = new Map()
+  const contextSyncTimers = new Map()
+
+  const contextItemsOf = (sessionId) => contextBySession.get(sessionId) ?? []
+
+  async function postContext(sessionId, items) {
+    if (!sessionId) return
+    try {
+      await fetch(`${ENDPOINT}/context`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          items: items.map(({ text, comment }) => ({ text, comment })),
+        }),
+        keepalive: true,
+      })
+    } catch { /* 网络失败时服务端保留上一份，不打断输入 */ }
+  }
+
+  function snapshotContext(sessionId, items) {
+    if (!sessionId) return
+    if (items.length === 0) contextBySession.delete(sessionId)
+    else contextBySession.set(sessionId, items)
+    const previous = contextSyncTimers.get(sessionId)
+    if (previous) clearTimeout(previous)
+    const timer = setTimeout(() => {
+      contextSyncTimers.delete(sessionId)
+      void postContext(sessionId, items)
+    }, 150)
+    contextSyncTimers.set(sessionId, timer)
   }
 
   /** 找出正文里的 {{变量}}，去重保序。 */
@@ -4570,17 +4636,27 @@ function createPromptsClient(require) {
     }
     const copySel = async (text) => {
       hide()
+      if (!navigator.clipboard?.writeText) { toast('当前环境不支持复制'); return }
       try {
-        await navigator.clipboard?.writeText(text)
+        await navigator.clipboard.writeText(text)
         toast('已复制')
       } catch {
         toast('复制失败')
       }
     }
 
-    /** 把选中文字追加进输入框草稿（草稿桥是 enhancer 客户端挂的全局）。 */
-    const addToDraft = (text) => {
+    /** 把选中文字加到输入框上方的上下文卡片（无卡片环境回退到草稿桥）。
+     * anchorEl：选区起始元素，点 pill 跳回源文用（Trae 同款交互）。 */
+    const addToDraft = (text, anchorEl) => {
       hide()
+      const addContext = window.__dshSuperinputAddContext
+      if (typeof addContext === 'function') {
+        try {
+          const ok = addContext(text, anchorEl)
+          toast(ok ? '已添加到对话' : `最多添加 ${CONTEXT_MAX} 段对话内容`)
+          return
+        } catch { /* 回退到草稿桥 */ }
+      }
       try {
         const set = window.__dshSuperinputSetDraft
         if (!set) { toast('草稿桥未就绪，刷新后重试'); return }
@@ -4623,8 +4699,9 @@ function createPromptsClient(require) {
             if (!current || current.length < 4 || !sel.rangeCount) { hide(); return }
             const node = sel.anchorNode
             const el = node instanceof Element ? node : node?.parentElement
-            // 只收对话正文：跳过输入区和我们自己的弹层
+            // 只收对话正文：跳过输入区、我们自己的弹层，以及侧栏/设置等非对话区域
             if (!el || el.closest('[data-dsh-superinput-portal]') || el.closest('[contenteditable="true"], textarea, input')) { hide(); return }
+            if (!el.closest('[data-chat-flow], [data-slot="conversation.chat.flow"]')) { hide(); return }
             const rect = sel.getRangeAt(0).getBoundingClientRect()
             if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
             const container = ensureHost()
@@ -4635,7 +4712,8 @@ function createPromptsClient(require) {
             container.style.display = 'block'
             const menu = document.createElement('div')
             menu.className = 'dsh-cp-selmenu'
-            menu.addEventListener('mousedown', (e) => e.stopPropagation())
+            // 阻止默认聚焦/清选区：否则 mousedown 触发 selectionchange，菜单会在 click 前被隐藏
+            menu.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault() })
             const mkItem = (label, action) => {
               const b = document.createElement('button')
               b.className = 'dsh-cp-selitem'
@@ -4645,7 +4723,7 @@ function createPromptsClient(require) {
             }
             menu.append(
               mkItem('复制', copySel),
-              mkItem('添加到对话', addToDraft),
+              mkItem('添加到对话', (text) => addToDraft(text, el)),
               mkItem('存为模板', save))
             container.replaceChildren(menu)
           } catch { /* ignore */ }
@@ -4954,6 +5032,168 @@ function createPromptsClient(require) {
     render() { return this.state.crashed ? null : this.props.children }
   }
 
+  /** 划选上下文卡片：输入框上方的独立列表，支持逐条评论/移除。 */
+  function SelectionContextChips({ session, useInput }) {
+    const sessionId = session?.sessionId === undefined ? '' : String(session.sessionId)
+    const [items, setItems] = React.useState([])
+    const itemsRef = React.useRef(items)
+    const phase = useInput((state) => state.phase)
+    const previousPhase = React.useRef(phase)
+
+    React.useEffect(() => {
+      const next = sessionId ? contextItemsOf(sessionId) : []
+      itemsRef.current = next
+      setItems(next)
+    }, [sessionId])
+
+    React.useEffect(() => {
+      itemsRef.current = items
+    }, [items])
+
+    React.useEffect(() => {
+      if (!sessionId) return undefined
+      const add = (text, anchorEl) => {
+        const clean = String(text ?? '').trim()
+        if (!clean || itemsRef.current.length >= CONTEXT_MAX) return false
+        // 源锚点：Trae 的 payload 带源位置（点击卡片 revealRangeInCenter）——
+        // 这里存选区起始元素的弱引用，点 pill 跳回源文并闪烁；断线（重渲染
+        // 重建节点）时跳转静默降级为无操作。
+        const next = [...itemsRef.current, {
+          id: `ctx-${Date.now().toString(36)}-${contextSeq += 1}`,
+          text: clean,
+          comment: '',
+          anchor: anchorEl instanceof Element ? new WeakRef(anchorEl) : null,
+        }]
+        itemsRef.current = next
+        setItems(next)
+        snapshotContext(sessionId, next)
+        return true
+      }
+      window.__dshSuperinputAddContext = add
+      return () => {
+        if (window.__dshSuperinputAddContext === add) delete window.__dshSuperinputAddContext
+      }
+    }, [sessionId])
+
+    const clearForSend = () => {
+      if (itemsRef.current.length === 0) return
+      // 发送意图已发生：先把最新评论同步给服务端（pre-step 消费），再清空卡片。
+      void postContext(sessionId, itemsRef.current)
+      itemsRef.current = []
+      setItems([])
+      contextBySession.delete(sessionId)
+    }
+
+    React.useEffect(() => {
+      const was = previousPhase.current
+      previousPhase.current = phase
+      if (was === 'submitting' || phase !== 'submitting') return
+      clearForSend()
+    }, [phase, sessionId])
+
+    // 发送按钮点击 / 输入框 Enter 是比 phase 更可靠的发送意图信号；
+    // 挂 window capture，先于宿主与 enhancer 的 document 监听执行。
+    React.useEffect(() => {
+      if (!sessionId) return undefined
+      const onClick = (event) => {
+        const target = event.target
+        if (target?.closest?.('button[aria-label*="发送消息"], button[aria-label*="Send"], button[aria-label*="send"]')) clearForSend()
+      }
+      const onKey = (event) => {
+        if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+        if (!event.target?.closest?.('[contenteditable="true"]')) return
+        clearForSend()
+      }
+      window.addEventListener('click', onClick, true)
+      window.addEventListener('keydown', onKey, true)
+      return () => {
+        window.removeEventListener('click', onClick, true)
+        window.removeEventListener('keydown', onKey, true)
+      }
+    }, [sessionId])
+
+    const update = (id, patch) => {
+      const next = itemsRef.current.map((item) => item.id === id ? { ...item, ...patch } : item)
+      itemsRef.current = next
+      setItems(next)
+      snapshotContext(sessionId, next)
+    }
+
+    if (items.length === 0) return null
+
+    /** 点 pill：跳回源文（Trae revealRangeInCenter 同义）并闪烁；锚点断线就只展开。 */
+    const revealSource = (item) => {
+      try {
+        const el = item.anchor?.deref?.()
+        if (el?.isConnected) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.classList.add('dsh-cp-flash')
+          setTimeout(() => el.classList.remove('dsh-cp-flash'), 1600)
+        }
+      } catch { /* 锚点失效：静默降级 */ }
+      update(item.id, { open: !item.open })
+    }
+
+    return h('div', { className: 'dsh-cp-ctxbar' },
+      items.map((item, index) => h(React.Fragment, { key: item.id },
+        h('div', {
+          className: `dsh-cp-ctxpill${item.open ? ' dsh-cp-ctxpill-open' : ''}`,
+          'data-has-comment': String(Boolean(item.comment)),
+          title: item.text,
+          onClick: () => revealSource(item),
+        },
+          h('span', { className: 'dsh-cp-ctxpill-dot' }),
+          h('span', { className: 'dsh-cp-ctxpill-label' },
+            `选段 ${index + 1} · ${String(item.text).replace(/\s+/g, ' ').slice(0, 40)}`),
+          h('button', {
+            className: 'dsh-cp-ctxpill-btn',
+            title: item.comment ? '编辑评论' : '添加评论',
+            'aria-label': item.comment ? '编辑评论' : '添加评论',
+            onClick: (event) => { event.stopPropagation(); update(item.id, { open: !item.open }) },
+          }, '💬'),
+          h('button', {
+            className: 'dsh-cp-ctxpill-btn',
+            title: '移除这段上下文',
+            'aria-label': '移除这段上下文',
+            onClick: (event) => {
+              event.stopPropagation()
+              const next = itemsRef.current.filter((entry) => entry.id !== item.id)
+              itemsRef.current = next
+              setItems(next)
+              snapshotContext(sessionId, next)
+            },
+          }, '×')),
+        item.open ? h('div', { className: 'dsh-cp-ctxopen', onClick: (event) => event.stopPropagation() },
+          h('div', { className: 'dsh-cp-ctxopen-text' }, item.text),
+          h('input', {
+            value: item.comment,
+            placeholder: '对这段内容的评论（可选），发送时一并带给模型',
+            autoFocus: true,
+            onInput: (event) => update(item.id, { comment: event.target.value }),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') { event.stopPropagation(); update(item.id, { open: false }) }
+              if (event.key === 'Escape') update(item.id, { open: false })
+            },
+          }))) : null))
+    )
+  }
+
+  /** 草稿桥：划选「添加到对话」、模板插入、/ 命令插入共用。
+   * 挂 conversation.input.dock——该槽位会注入 useInput / inputActions；
+   * composer.dock 不注入这些 props。片段模块移除时桥被一并删掉，这里补回。 */
+  function PromptsDraftBridge({ useInput, inputActions }) {
+    const draft = useInput((state) => state?.draft)
+    React.useEffect(() => {
+      window.__dshSuperinputDraft = () => (typeof draft === 'string' ? draft : '')
+      if (typeof inputActions?.setDraft === 'function') {
+        window.__dshSuperinputSetDraft = (value) => {
+          try { inputActions.setDraft(value) } catch { /* ignore */ }
+        }
+      }
+    }, [draft, inputActions])
+    return null
+  }
+
   function PromptsButton({ onSyncSlash }) {
     const [open, setOpen] = React.useState(false)
     const ref = React.useRef(null)
@@ -5024,6 +5264,20 @@ function createPromptsClient(require) {
         id: 'dsh-superinput-prompts-btn',
         order: 4,
       }, (props) => h(PromptsBoundary, null, h(PromptsButton, { ...props, onSyncSlash: syncSlash }))))
+
+      // 草稿桥挂 input.dock（该槽位注入 useInput / inputActions）
+      ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+        name: 'conversation.input.dock',
+        id: 'dsh-superinput-prompts-bridge',
+        order: 96,
+      }, PromptsDraftBridge))
+
+      // 划选上下文卡片：同一槽位的独立列表项，渲染在输入框上方。
+      ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+        name: 'conversation.input.dock',
+        id: 'dsh-superinput-selection-context',
+        order: 97,
+      }, (props) => h(PromptsBoundary, null, h(SelectionContextChips, props))))
     },
   }
 }

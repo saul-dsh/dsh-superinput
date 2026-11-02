@@ -2999,11 +2999,30 @@ const promptsModule = (() => {
 
 
 
+
 const moduleInject = []
 
 const STORE_DIR = join(homedir(), '.dsh', 'storages', 'dsh-superinput')
 const STORE_PATH = join(STORE_DIR, 'prompts.json')
 const CLIENT_DIAG = join(homedir(), '.dsh', 'superinput-debug.log')
+
+/* 划选上下文：客户端把「选段 + 评论」暂存到这里，下一轮 pre-step 一次性
+ * 注入成一条 sourced UserMessage，随后立即删除（只影响紧接着的一次发送）。 */
+const CONTEXT_MAX_ITEMS = 8
+const CONTEXT_TEXT_MAX = 4000
+const CONTEXT_COMMENT_MAX = 600
+const CONTEXT_TTL_MS = 10 * 60_000
+const pendingContext = new Map()
+
+function renderSelectionContext(items) {
+  const lines = [
+    '以下是我从对话中选中的上下文，按顺序附带我的评论。回答时请优先参考这些内容，并针对评论中的问题作答。',
+  ]
+  items.forEach((item, index) => {
+    lines.push(`【选段 ${index + 1}】\n${item.text}${item.comment ? `\n我的评论：${item.comment}` : ''}`)
+  })
+  return lines.join('\n\n')
+}
 
 const Config = Schema.object({
   enabled: Schema.boolean().default(true).description('启用提示词模板库'),
@@ -3196,6 +3215,36 @@ function apply(ctx, config) {
   store.load()
   ctx.effect(() => store.dispose(), 'dsh-superinput: prompts store')
 
+  // 划选上下文注入：挂在 pre-step 最前面，先让下游（含提示词增强）处理完，
+  // 再把上下文作为一条独立的 sourced 用户消息追加到本轮送模消息末尾。
+  ctx.on('agent/pre-step', async ({ agent, step, signal }, next) => {
+    const decision = await next()
+    if (decision.kind === 'reject' || signal?.aborted) return decision
+    const rawSession = agent?.session
+    const sessionId = typeof rawSession === 'string'
+      ? rawSession
+      : rawSession?.id === undefined ? '' : String(rawSession.id)
+    const pending = sessionId ? pendingContext.get(sessionId) : undefined
+    if (step !== 1 || !pending) return decision
+    pendingContext.delete(sessionId)
+    if (pending.items.length === 0 || Date.now() - pending.at > CONTEXT_TTL_MS) return decision
+    const text = renderSelectionContext(pending.items)
+    try {
+      appendFileSync(CLIENT_DIAG, `${new Date().toISOString()} context injected session=${sessionId.slice(0, 50)} items=${pending.items.length}\n`, 'utf8')
+    } catch { /* 日志失败不影响注入 */ }
+    return {
+      ...decision,
+      messages: [...decision.messages, createUserMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'dsh-superinput-selection',
+          form: 'snapshot',
+          sections: [{ name: 'selection-context', text }],
+        },
+      })],
+    }
+  }, { prepend: true })
+
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
@@ -3241,6 +3290,22 @@ function apply(ctx, config) {
             appendFileSync(CLIENT_DIAG, `${new Date().toISOString()} ${String(message).slice(0, 500)}\n`, 'utf8')
           } catch { /* 落盘失败不影响应答 */ }
           send(200, { ok: true })
+          return
+        }
+        // 划选上下文暂存：items 为空表示清除；真正的注入在 agent/pre-step。
+        if (path === '/context' && req.method === 'POST') {
+          const body = await readBody()
+          const sessionId = String(body.sessionId ?? '').trim().slice(0, 200)
+          if (!sessionId) { send(400, { error: 'missing-session' }); return }
+          const items = Array.isArray(body.items)
+            ? body.items.slice(0, CONTEXT_MAX_ITEMS).map((item) => ({
+              text: String(item?.text ?? '').replace(/\0/g, '').trim().slice(0, CONTEXT_TEXT_MAX),
+              comment: String(item?.comment ?? '').replace(/\0/g, '').trim().slice(0, CONTEXT_COMMENT_MAX),
+            })).filter((item) => item.text.length > 0)
+            : []
+          if (items.length === 0) pendingContext.delete(sessionId)
+          else pendingContext.set(sessionId, { items, at: Date.now() })
+          send(200, { ok: true, count: items.length })
           return
         }
         if (path === '/list' && req.method === 'GET') {

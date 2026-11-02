@@ -18,6 +18,7 @@ const backup = hadStore ? readFileSync(STORE) : null
 let promptsHandler = null
 let enhancerHandler = null
 const webPaths = []
+const eventHandlers = {}
 const services = {
   webServer: { register(spec) { webPaths.push(spec.path); if (spec.path.endsWith('/prompts')) promptsHandler = spec.handler; if (spec.path === '/api/prompt-enhancer') enhancerHandler = spec.handler } },
   tools: { register() {} },
@@ -37,7 +38,7 @@ const ctx = {
     for (const d of deps) if (!(d in scope)) scope[d] = services[d] ?? {}
     cb(scope)
   },
-  on() { return () => {} },
+  on(name, handler) { eventHandlers[name] = handler; return () => { delete eventHandlers[name] } },
 }
 
 const assert = (cond, label) => { if (!cond) throw new Error(label); console.log('ok:', label) }
@@ -106,6 +107,25 @@ try {
   assert(list2.find((i) => i.id === delC).title === 'e2e-C-imported', 'import: deleted C back with original id')
   assert(list2.find((i) => i.id === idB).body !== 'stale-overwrite-should-skip', 'import: stale skipped')
   assert((await prompts('POST', '/import', { items: 'not-an-array' })).status === 400, 'import: invalid payload rejected')
+
+  // 划选上下文：/context 暂存 → agent/pre-step 一次性注入
+  const ctxStore = await prompts('POST', '/context', { sessionId: 'smoke-session', items: [{ text: '选中的对话内容', comment: '帮我解释这一段' }] })
+  assert(ctxStore.status === 200 && ctxStore.out?.count === 1, 'context: stored')
+  const preStep = eventHandlers['agent/pre-step']
+  assert(typeof preStep === 'function', 'context: pre-step handler registered')
+  const preNext = async () => ({ kind: 'enter', messages: [] })
+  const preOnce = await preStep({ agent: { session: 'smoke-session' }, step: 1, signal: { aborted: false } }, preNext)
+  const injected = preOnce.messages?.[0]?.content?.[0]?.text ?? ''
+  assert(preOnce.messages?.length === 1 && injected.includes('选中的对话内容') && injected.includes('帮我解释这一段'), 'context: text + comment injected')
+  const preTwice = await preStep({ agent: { session: 'smoke-session' }, step: 1, signal: { aborted: false } }, preNext)
+  assert((preTwice.messages ?? []).length === 0, 'context: one-shot consumed')
+
+  // 客户端草稿桥：划选「添加到对话」/模板插入/斜杠命令都依赖它；
+  // 0.4.0 移除 snippets 时整块丢失过一次，静态断言防再犯。
+  const clientSource = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert(clientSource.includes('window.__dshSuperinputSetDraft ='), 'client: draft bridge setter present')
+  assert(clientSource.includes('dsh-superinput-prompts-bridge'), 'client: draft bridge registered on input.dock')
+  assert(clientSource.includes('dsh-superinput-selection-context'), 'client: selection context cards registered')
 
   console.log('SMOKE ALL PASS')
 } catch (error) {

@@ -2,6 +2,45 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - 2026-11-02
+
+### 划选「添加到对话」：Trae 式引用 pill + 可评论上下文
+
+- **交互对齐 Trae（逆向自 workbench.desktop.main.js 的
+  `workbench.action.icubeAi.addToChat` 链路）**：卡片改为 Trae 同款引用
+  pill（高 20px/圆角 4px/1px 描边/11px 字/单行省略，容器 flex wrap gap 4px，
+  替代此前的 260px 大卡横滚）；添加时记录选区源锚点（WeakRef），**点 pill
+  平滑滚回源文并闪烁高亮**（Trae 点击卡片 revealRangeInCenter 的同义实现，
+  锚点断线静默降级）。
+- 评论交互：pill 常态只显示「选段 N · 预览」，💬 钮展开全文预览 + 评论输入
+  （Trae 在 SoloBrowser 采集 comment，这里延后到卡片上、密度更高）；有评论
+  的 pill 文字提亮区分；Enter 收起、Esc 收起。移除仍走 pill 上的 ×。
+- 划选菜单的「添加到对话」不再把文字直接塞进草稿，改为在输入框上方生成
+  上下文卡片；最多 8 条。
+- 评论或内容变化经 150ms 防抖同步到 prompts `/context`；点击发送按钮或
+  输入框 Enter 时立即 flush、清空卡片，不依赖瞬时 phase 状态。
+- 服务端在 `agent/pre-step` 按会话读取暂存，把「选段 + 评论」作为一条
+  sourced UserMessage 追加到本轮送模消息末尾；注入后删除（one-shot，
+  10 分钟 TTL），不影响后续回合。
+- 修复会话 key 错配：`agent.session` 是 Session 对象而非字符串，改用
+  `agent.session.id`；web 真机全链路验证通过（添加 → 评论 → 发送 →
+  pre-step 注入日志）。
+- 冒烟新增 `/context` 存储、pre-step 注入/一次性消费、客户端卡片注册断言。
+
+## [0.7.1] - 2026-11-02
+
+### 修复：划选菜单与模板插入的草稿桥丢失
+
+- 0.4.0 移除 snippets 模块时，`__dshSuperinputSetDraft` / `__dshSuperinputDraft`
+  的桥接赋值被一并删除；0.7.0 的划选「添加到对话」、模板插入、`/` 命令插入
+  因此全部失效（前者只弹「草稿桥未就绪」）。
+- prompts 新增 `conversation.input.dock` 草稿桥组件，恢复两个全局；真机验证
+  划选后点「添加到对话」可正确写入输入框。
+- 划选菜单限定在对话正文（`[data-chat-flow]`），侧栏/设置页划选不再弹出。
+- 菜单 `mousedown` 阻止默认行为，避免清掉选区导致 click 前菜单消失。
+- 无 Clipboard API 时不再假报「已复制」。
+- 冒烟新增草稿桥静态断言（setter + input.dock 注册），防止再次整块丢失。
+
 ## [0.7.0] - 2026-11-02
 
 ### 发布工程（补 0.6.0 之后未归档的提交）
