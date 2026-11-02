@@ -4699,17 +4699,18 @@ function createPromptsClient(require) {
 
     // 选区变化驱动（dblclick 选词在 mouseup 之后才成形，selectionchange 才是可靠信号）
     let showTimer = 0
+    // 弹层门槛：非空即弹（用户明确要求一个字也弹）。
     document.addEventListener('selectionchange', () => {
       try {
         if (showTimer) { clearTimeout(showTimer); showTimer = 0 }
         const selection = window.getSelection?.()
         const text = String(selection ?? '').trim()
-        if (!text || text.length < 4 || !selection.rangeCount) { hide(); return }
+        if (!text || !selection.rangeCount) { hide(); return }
         showTimer = setTimeout(() => {
           try {
             const sel = window.getSelection?.()
             const current = String(sel ?? '').trim()
-            if (!current || current.length < 4 || !sel.rangeCount) { hide(); return }
+            if (!current || !sel.rangeCount) { hide(); return }
             const node = sel.anchorNode
             const el = node instanceof Element ? node : node?.parentElement
             // 只收对话正文：跳过输入区、我们自己的弹层，以及侧栏/设置等非对话区域
