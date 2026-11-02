@@ -4450,31 +4450,37 @@ function createPromptsClient(require) {
 .dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
   background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
 .dsh-cp-ctxbar { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; padding: 0 12px 8px; }
-/* 引用 pill：Trae 同款（.chat-attached-context-attachment）——矮行、细描边、
-   11px 字、单行省略；点 pill 跳回源文，💬 展开/收起评论，× 移除。 */
-.dsh-cp-ctxpill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 20px; max-width: 100%;
-  padding: 0 4px 0 6px; border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
-  border-radius: 4px; background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.04)); cursor: pointer;
-  transition: background .14s ease, border-color .14s ease; }
-.dsh-cp-ctxpill:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); border-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.2)); }
-.dsh-cp-ctxpill-label { font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-cp-ctxpill[data-has-comment="true"] .dsh-cp-ctxpill-label { color: var(--dsw-alias-label-primary); }
-.dsh-cp-ctxpill-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #3a83f7; }
+/* 引用标签：照抄 Trae comment-mention-tag 规格（ai-modules-chat/index.css）——
+   高 18px / padding 1px 6px 1px 4px / 中性底 rgba(116,126,148,.18) / 字重 500 /
+   字距 -.02em；结构 = 引用文本 · 💬 评论（评论内联在标签里，Trae 同构）。 */
+.dsh-cp-ctxpill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 2px; height: 18px; max-width: 300px;
+  padding: 1px 6px 1px 4px; border: none; border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, 0.18)); cursor: pointer;
+  font-size: 11px; font-weight: 500; letter-spacing: -0.02em;
+  transition: background .14s ease; }
+.dsh-cp-ctxpill:hover, .dsh-cp-ctxpill.hovered { background: var(--dsw-alias-interactive-bg-hover, rgba(116, 126, 148, 0.28)); }
+.dsh-cp-ctxpill-icon { flex: 0 0 auto; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #8a9096); }
+.dsh-cp-ctxpill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); }
+.dsh-cp-ctxpill-sep { flex-shrink: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #8a9096); }
+.dsh-cp-ctxpill-comment { display: inline-flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 0; overflow: hidden; }
+.dsh-cp-ctxpill-bubble { flex-shrink: 0; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #8a9096); }
+.dsh-cp-ctxpill-comment-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary, #8a9096); line-height: 16px; }
 .dsh-cp-ctxpill-btn { flex: 0 0 auto; width: 16px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   border: none; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1; border-radius: 3px; cursor: pointer; }
 .dsh-cp-ctxpill-btn:hover { color: var(--dsw-alias-label-primary); background: rgba(255, 255, 255, 0.1); }
-.dsh-cp-ctxpill-open { border-color: #3a83f7; }
-/* 展开行：全文预览 + 评论输入（Trae 的评论在采集时输入；这里点 💬 展开，信息密度更高）。 */
+.dsh-cp-ctxpill-open { outline: 1px solid #3a83f7; }
+/* 评论编辑浮层：Trae 在采集时输入评论——这里添加后立即展开，全文预览+输入。 */
 .dsh-cp-ctxopen { box-sizing: border-box; flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px;
-  padding: 6px 8px; border: 1px solid #3a83f7; border-radius: var(--dsw-radius-sm, 6px);
-  background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.06)); }
+  padding: 6px 8px; border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, 0.12)); }
 .dsh-cp-ctxopen-text { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap;
   display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .dsh-cp-ctxopen input { box-sizing: border-box; width: 100%; padding: 3px 6px; font-size: 11px; line-height: 16px;
   color: var(--dsw-alias-label-primary); background: transparent; border: 0.5px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
   border-radius: var(--dsw-radius-sm, 6px); outline: none; font-family: inherit; }
 .dsh-cp-ctxopen input:focus { border-color: #3a83f7; }
-/* 点击 pill 跳源时对源元素的闪烁高亮。 */
+/* 点击标签跳源时对源元素的闪烁高亮。 */
 .dsh-cp-flash { outline: 2px solid #3a83f7 !important; outline-offset: 1px; border-radius: 3px; transition: outline-color .3s ease; }
 `
 
@@ -5058,10 +5064,13 @@ function createPromptsClient(require) {
         // 源锚点：Trae 的 payload 带源位置（点击卡片 revealRangeInCenter）——
         // 这里存选区起始元素的弱引用，点 pill 跳回源文并闪烁；断线（重渲染
         // 重建节点）时跳转静默降级为无操作。
+        // open:true：Trae 在采集时即收集评论（SoloBrowser 选段流程），这里
+        // 添加后立即展开评论框，省一次寻找入口的成本。
         const next = [...itemsRef.current, {
           id: `ctx-${Date.now().toString(36)}-${contextSeq += 1}`,
           text: clean,
           comment: '',
+          open: true,
           anchor: anchorEl instanceof Element ? new WeakRef(anchorEl) : null,
         }]
         itemsRef.current = next
@@ -5077,7 +5086,10 @@ function createPromptsClient(require) {
 
     const clearForSend = () => {
       if (itemsRef.current.length === 0) return
-      // 发送意图已发生：先把最新评论同步给服务端（pre-step 消费），再清空卡片。
+      // 发送意图已发生：先撤销未触发的防抖计时器（否则它会在清空后把旧
+      // 数据写回服务端，下一轮被重复注入），再把最新评论同步给服务端。
+      const pendingTimer = contextSyncTimers.get(sessionId)
+      if (pendingTimer) { clearTimeout(pendingTimer); contextSyncTimers.delete(sessionId) }
       void postContext(sessionId, itemsRef.current)
       itemsRef.current = []
       setItems([])
@@ -5121,8 +5133,9 @@ function createPromptsClient(require) {
 
     if (items.length === 0) return null
 
-    /** 点 pill：跳回源文（Trae revealRangeInCenter 同义）并闪烁；锚点断线就只展开。 */
-    const revealSource = (item) => {
+    /** 点标签主体：展开态聚焦评论框；否则跳回源文（Trae revealRangeInCenter 同义）并展开。 */
+    const activate = (item) => {
+      if (item.open) return
       try {
         const el = item.anchor?.deref?.()
         if (el?.isConnected) {
@@ -5131,20 +5144,30 @@ function createPromptsClient(require) {
           setTimeout(() => el.classList.remove('dsh-cp-flash'), 1600)
         }
       } catch { /* 锚点失效：静默降级 */ }
-      update(item.id, { open: !item.open })
+      update(item.id, { open: true })
     }
 
     return h('div', { className: 'dsh-cp-ctxbar' },
       items.map((item, index) => h(React.Fragment, { key: item.id },
         h('div', {
           className: `dsh-cp-ctxpill${item.open ? ' dsh-cp-ctxpill-open' : ''}`,
-          'data-has-comment': String(Boolean(item.comment)),
           title: item.text,
-          onClick: () => revealSource(item),
+          onClick: () => activate(item),
         },
-          h('span', { className: 'dsh-cp-ctxpill-dot' }),
           h('span', { className: 'dsh-cp-ctxpill-label' },
-            `选段 ${index + 1} · ${String(item.text).replace(/\s+/g, ' ').slice(0, 40)}`),
+            `选段 ${index + 1} · ${String(item.text).replace(/\s+/g, ' ').slice(0, 30)}`),
+          item.comment
+            ? [
+              h('span', { className: 'dsh-cp-ctxpill-sep', key: 'sep' }, '·'),
+              h('span', { className: 'dsh-cp-ctxpill-comment', key: 'cmt' },
+                h('svg', { className: 'dsh-cp-ctxpill-bubble', viewBox: '0 0 16 16', 'aria-hidden': true },
+                  h('path', {
+                    d: 'M8 2.5c3.1 0 5.7 2.1 5.7 4.8S11.1 12.1 8 12.1c-.8 0-1.5-.1-2.2-.4L3.4 13l.7-2.2C2.8 9.9 2.3 8.7 2.3 7.3c0-2.7 2.6-4.8 5.7-4.8z',
+                    fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linejoin': 'round',
+                  })),
+                h('span', { className: 'dsh-cp-ctxpill-comment-text' }, item.comment)),
+            ]
+            : null,
           h('button', {
             className: 'dsh-cp-ctxpill-btn',
             title: item.comment ? '编辑评论' : '添加评论',
@@ -5163,7 +5186,14 @@ function createPromptsClient(require) {
               snapshotContext(sessionId, next)
             },
           }, '×')),
-        item.open ? h('div', { className: 'dsh-cp-ctxopen', onClick: (event) => event.stopPropagation() },
+        item.open ? h('div', {
+          className: 'dsh-cp-ctxopen',
+          // 拦下 mousedown/mouseup/click：宿主输入框会在点击外部时抢焦点，
+          // 不拦住评论框就打不了字（「评论添加不到输入框」的直接原因）。
+          onMouseDown: (event) => event.stopPropagation(),
+          onMouseUp: (event) => event.stopPropagation(),
+          onClick: (event) => event.stopPropagation(),
+        },
           h('div', { className: 'dsh-cp-ctxopen-text' }, item.text),
           h('input', {
             value: item.comment,
@@ -5171,10 +5201,10 @@ function createPromptsClient(require) {
             autoFocus: true,
             onInput: (event) => update(item.id, { comment: event.target.value }),
             onKeyDown: (event) => {
-              if (event.key === 'Enter') { event.stopPropagation(); update(item.id, { open: false }) }
-              if (event.key === 'Escape') update(item.id, { open: false })
+              event.stopPropagation()
+              if (event.key === 'Enter' || event.key === 'Escape') update(item.id, { open: false })
             },
-          }))) : null))
+          })) : null))
     )
   }
 

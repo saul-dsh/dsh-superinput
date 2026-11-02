@@ -2,6 +2,22 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.1] - 2026-11-02
+
+### 引用标签按 Trae 真实规格重写（ai-modules-chat 逆向）+ 评论流程修复
+
+- **深挖 @byted-icube/ai-modules-chat 后按真实规格重写**：Trae 的评论不是
+  挂在卡片上的输入框，而是 `comment-mention-tag`——引用文本 · 💬 评论内联
+  在一个 18px 标签里（padding 1px 6px 1px 4px、中性底 rgba(116,126,148,.18)、
+  字重 500、字距 -.02em、评论气泡 12px 三级色）。dsh 标签照此重做（尺寸按
+  dsh 行高微调），有评论时标签内直接显示评论内容（Trae has-comment-content
+  同构）。
+- **修「评论打不了字」**：评论框此前只拦 click，宿主输入框在 mousedown 阶段
+  就抢走焦点——现在 mousedown/mouseup/click 全拦，添加后立即展开评论框并
+  自动聚焦（Trae 也是采集时即收集评论）。
+- **修发送后回写竞态**：150ms 防抖计时器在发送 flush 后仍会把旧数据写回
+  /context，下一轮被重复注入——clearForSend 现在先撤销未触发的计时器。
+
 ## [0.8.0] - 2026-11-02
 
 ### 划选「添加到对话」：Trae 式引用 pill + 可评论上下文
