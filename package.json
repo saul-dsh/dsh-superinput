@@ -1,7 +1,7 @@
 {
   "name": "dsh-superinput",
-  "version": "0.6.0",
-  "description": "Super input box suite for the DeepSeek Harness (dsh): model & effort picker, prompt enhancement, follow-up suggestions, full cost engine (billing, backfill, price sync, forecast), voice input, snippet & prompt template managers and a settings hub — one plugin, eight input-area modules with per-module failure isolation.",
+  "version": "0.7.0",
+  "description": "Super input box suite for the DeepSeek Harness (dsh): model & effort picker, prompt enhancement, follow-up suggestions, full cost engine (billing, backfill, price sync, forecast), voice input, prompt template manager and a settings hub — one plugin, seven input-area modules with per-module failure isolation.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -10,14 +10,19 @@
   },
   "files": [
     "index.js",
+    "server.js",
     "client.js",
-    "modules",
+    "modules/*.js",
     "scripts",
     "cordis.patch.yml",
     "README.md",
-    "README.en.md",
     "CHANGELOG.md"
   ],
+  "scripts": {
+    "build": "node scripts/build-suite.mjs",
+    "check": "node --check index.js && node --check server.js && node --check client.js",
+    "test": "node scripts/smoke.mjs"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
