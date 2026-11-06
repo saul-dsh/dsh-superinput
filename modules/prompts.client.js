@@ -7,6 +7,17 @@ function createPromptsClient(require) {
   const STYLE_ID = 'dsh-superinput-prompts-style'
   const ENDPOINT = '/api/dsh-superinput/prompts'
 
+  /* 划选引用：官方 reference chip + Trae 规格。
+   * CHIP_MARK 是不可见分隔符（U+2063），作为标签前缀用于 CSS 精确选中
+   * 「我们插入的 chip」而不波及官方 @file chip；视觉与文本内容无影响。 */
+  const SELECTION_SOURCE = 'superinput-selection'
+  const SELECTION_RULE = 'dsh-superinput-selection'
+  const CHIP_MARK = '\u2063'
+  const CONTEXT_MAX = 8
+  const CONTEXT_TEXT_MAX = 4000
+  const CONTEXT_COMMENT_MAX = 600
+  const STORAGE_KEY = 'dsh-superinput-selection-items'
+
   const CSS = `
 .dsh-cp-btn {
   display: inline-flex;
@@ -118,42 +129,131 @@ function createPromptsClient(require) {
 .dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
 .dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
   background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
-.dsh-cp-ctxbar { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; padding: 0 12px 8px; }
-/* 引用标签：照抄 Trae comment-mention-tag 规格（ai-modules-chat/index.css）——
-   高 18px / padding 1px 6px 1px 4px / 中性底 rgba(116,126,148,.18) / 字重 500 /
-   字距 -.02em；结构 = 引用文本 · 💬 评论（评论内联在标签里，Trae 同构）。 */
-.dsh-cp-ctxpill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 2px; height: 18px; max-width: 300px;
-  padding: 1px 6px 1px 4px; border: none; border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, 0.18)); cursor: pointer;
-  font-size: 11px; font-weight: 500; letter-spacing: -0.02em;
-  transition: background .14s ease; }
-.dsh-cp-ctxpill:hover, .dsh-cp-ctxpill.hovered { background: var(--dsw-alias-interactive-bg-hover, rgba(116, 126, 148, 0.28)); }
-.dsh-cp-ctxpill-icon { flex: 0 0 auto; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #8a9096); }
-.dsh-cp-ctxpill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); }
-.dsh-cp-ctxpill-sep { flex-shrink: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #8a9096); }
-.dsh-cp-ctxpill-comment { display: inline-flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 0; overflow: hidden; }
-.dsh-cp-ctxpill-bubble { flex-shrink: 0; width: 12px; height: 12px; color: var(--dsw-alias-label-tertiary, #8a9096); }
-.dsh-cp-ctxpill-comment-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary, #8a9096); line-height: 16px; }
-.dsh-cp-ctxpill-btn { flex: 0 0 auto; width: 16px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
-  border: none; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1; border-radius: 3px; cursor: pointer; }
-.dsh-cp-ctxpill-btn:hover { color: var(--dsw-alias-label-primary); background: rgba(255, 255, 255, 0.1); }
-.dsh-cp-ctxpill-excluded { opacity: .55; }
-.dsh-cp-ctxpill-excluded .dsh-cp-ctxpill-label { text-decoration: line-through; }
-.dsh-cp-ctxpill-comment { cursor: pointer; }
-.dsh-cp-ctxpill-open { outline: 1px solid #3a83f7; }
-/* 评论编辑浮层：Trae 在采集时输入评论——这里添加后立即展开，全文预览+输入。 */
-.dsh-cp-ctxopen { box-sizing: border-box; flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px;
-  padding: 6px 8px; border-radius: var(--dsw-radius-sm, 6px);
-  background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, 0.12)); }
-.dsh-cp-ctxopen-text { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap;
-  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-.dsh-cp-ctxopen input { box-sizing: border-box; width: 100%; padding: 3px 6px; font-size: 11px; line-height: 16px;
-  color: var(--dsw-alias-label-primary); background: transparent; border: 0.5px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
-  border-radius: var(--dsw-radius-sm, 6px); outline: none; font-family: inherit; }
-.dsh-cp-ctxopen input:focus { border-color: #3a83f7; }
+/* ---- 划选引用 chip：Trae comment-mention 规格（ai-modules-chat/index.css）----
+   规格：高 22px / 圆角 --dsw-radius-sm(8) / business 浅色底 + business 主色文字 /
+   12px 500 / max-width 240；左图标在 hover 时换成 ×（Trae remove-mention-icon
+   同义）。颜色全部走 dsh 设计令牌，明暗主题各自生效，不再写死 Trae 的灰/蓝。 */
+[contenteditable] span[title^="${CHIP_MARK}"] {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  max-width: 240px;
+  padding: 1px 6px;
+  border: .5px solid color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 18%, transparent);
+  border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-state-business-tertiary, rgba(116, 126, 148, .18));
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+  font-family: var(--dsw-font-family, inherit);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  letter-spacing: normal;
+  vertical-align: middle;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background .14s ease;
+}
+[contenteditable] span[title^="${CHIP_MARK}"]:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 22%, transparent);
+}
+/* 隐藏宿主默认前缀（@ / file 图标），换 dsh 风格引用图标（mask 跟随文字色） */
+[contenteditable] span[title^="${CHIP_MARK}"] > span:first-child { display: none; }
+[contenteditable] span[title^="${CHIP_MARK}"]::before {
+  content: '';
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
+  opacity: .8;
+}
+[contenteditable] span[title^="${CHIP_MARK}"]:hover::before {
+  content: '×';
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+  color: var(--dsw-alias-label-primary, currentColor);
+  font-size: 14px;
+  line-height: 14px;
+  text-align: center;
+}
+/* 消息正文里的同款 chip（user-text 规则节点；不在 contenteditable 里） */
+.dsh-si-msgchip { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 22px; max-width: 240px;
+  padding: 1px 6px; margin: 0 1px; border: .5px solid color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 18%, transparent);
+  border-radius: var(--dsw-radius-sm, 8px); background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, .18));
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+  font-family: var(--dsw-font-family, inherit); font-size: 12px; font-weight: 500; line-height: 18px;
+  vertical-align: middle; overflow: hidden; user-select: none; }
+.dsh-si-msgchip.interactive { cursor: pointer; }
+.dsh-si-msgchip.interactive:hover { background: var(--dsw-alias-state-business-tertiary, rgba(116, 126, 148, .18)); }
+.dsh-si-msgchip-icon { flex: 0 0 14px; width: 14px; height: 14px; margin-right: 2px; opacity: .8; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat; }
+.dsh-si-msgchip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 详情弹窗：dsh 原生 Dialog 观感（layer-1 表面 / 16 圆角 / 突出投影 / 标准按钮） */
+.dsh-si-mask { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, .24)); }
+.dsh-si-dialog { box-sizing: border-box; width: min(480px, 100%); max-height: min(600px, 82vh); display: flex; flex-direction: column; gap: 12px;
+  padding: 16px; border-radius: var(--dsw-radius-lg, 16px); color: var(--dsw-alias-label-primary, #e8eefa); overflow-y: auto;
+  font-family: var(--dsw-font-family, inherit);
+  background: var(--dsw-alias-bg-layer-1, #232324);
+  border: .5px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, .08));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l4, rgba(255, 255, 255, .2));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 .5px var(--dsw-elevation-stroke-color), 0 8px 28px rgba(0, 0, 0, .28)); }
+.dsh-si-dialog-head { display: flex; align-items: center; gap: 8px; }
+.dsh-si-dialog-title { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 500; line-height: 24px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-si-dialog-x { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--dsw-radius-xs, 4px); cursor: pointer;
+  background: transparent; color: var(--dsw-alias-label-tertiary, #8a9096); font-size: 15px; line-height: 1; }
+.dsh-si-dialog-x:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, .08)); }
+.dsh-si-dialog-quote { box-sizing: border-box; flex: 1 1 auto; min-height: 40px; max-height: 240px; overflow: auto; padding: 10px 12px; border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-bg-module-platform, rgba(255, 255, 255, .06));
+  border-left: 2px solid var(--dsw-alias-state-business-primary, #3a83f7);
+  font-size: 14px; line-height: 22px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-si-dialog-label { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, #8a9096); }
+.dsh-si-dialog-detail { font-size: 14px; line-height: 22px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-si-dialog-comment { box-sizing: border-box; width: 100%; min-height: 64px; max-height: 160px; resize: vertical; padding: 8px 10px;
+  font-size: 14px; line-height: 22px; font-family: inherit; color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, .06)); border: .5px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, .12));
+  border-radius: var(--dsw-radius-sm, 8px); outline: none; }
+.dsh-si-dialog-comment:focus {
+  border-color: var(--dsw-alias-state-business-primary, #3a83f7);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary, #3a83f7) 16%, transparent);
+}
+.dsh-si-dialog-foot { display: flex; align-items: center; gap: 8px; }
+.dsh-si-dialog-spacer { flex: 1 1 auto; }
+.dsh-si-dialog-btn { height: 30px; padding: 0 14px; font-size: 13px; font-weight: 500; line-height: 20px; cursor: pointer;
+  color: var(--dsw-alias-label-primary); background: var(--dsw-alias-button-elevated-fill, transparent);
+  border: .5px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, .12)); border-radius: var(--dsw-radius-sm, 8px); }
+.dsh-si-dialog-btn:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, .08)); }
+.dsh-si-dialog-btn.ghost { background: transparent; border-color: transparent; color: var(--dsw-alias-label-secondary); }
+.dsh-si-dialog-btn.ghost:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, .08)); }
+.dsh-si-dialog-btn.primary { color: var(--dsw-alias-label-primary-foreground, #fff);
+  background: var(--dsw-alias-button-primary-fill, #3a83f7); border-color: transparent; }
+.dsh-si-dialog-btn.primary:hover { background: var(--dsw-alias-button-primary-hover, #4f8ef9); }
+.dsh-si-dialog-btn.danger { background: transparent; border-color: transparent; color: var(--dsw-alias-state-error-primary, #f87171); }
+.dsh-si-dialog-btn.danger:hover { background: var(--dsw-alias-interactive-bg-hover-danger, rgba(248, 113, 113, .12)); }
+/* 划选评论编辑器：Trae previewCommentCard 同构——锚在选区旁的小卡片，不遮罩 */
+.dsh-si-comment-editor { position: fixed; z-index: 1300; display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  box-sizing: border-box; border-radius: var(--dsw-radius-md, 12px); color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family, inherit); background: var(--dsw-alias-bg-layer-1, #fff);
+  border: .5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .1));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, .16));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 .5px var(--dsw-elevation-stroke-color), 0 8px 28px rgba(0, 0, 0, .2));
+  visibility: hidden; }
+.dsh-si-comment-head { font-size: 12px; font-weight: 500; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+.dsh-si-comment-quote { box-sizing: border-box; padding: 4px 6px; border-radius: var(--dsw-radius-xs, 4px);
+  background: var(--dsw-alias-bg-module-platform, rgba(0, 0, 0, .04));
+  font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-si-comment-editor .dsh-si-dialog-comment { min-height: 80px; max-height: 160px; font-size: 13px; line-height: 20px; }
+.dsh-si-comment-foot { display: flex; align-items: center; gap: 8px; }
 /* 点击标签跳源时对源元素的闪烁高亮。 */
-.dsh-cp-flash { outline: 2px solid #3a83f7 !important; outline-offset: 1px; border-radius: 3px; transition: outline-color .3s ease; }
+.dsh-cp-flash { outline: 2px solid var(--dsw-alias-state-business-primary, #3a83f7) !important; outline-offset: 1px; border-radius: 3px; transition: outline-color .3s ease; }
 `
 
   function ensureStyle() {
@@ -186,15 +286,71 @@ function createPromptsClient(require) {
   }
 
   /* ------------------------------------------------------------------ */
-  /* 划选上下文：会话级暂存 + 服务端 /context 同步                        */
+  /* 划选引用：输入框内联 chip（官方 reference source）+ /context 同步    */
   /* ------------------------------------------------------------------ */
 
-  const CONTEXT_MAX = 8
-  let contextSeq = 0
-  const contextBySession = new Map()
-  const contextSyncTimers = new Map()
+  const selectionItems = new Map()      // id -> item（发送后归档，供消息正文的 chip 渲染）
+  const selectionSyncTimers = new Map()
+  const selectionActions = new Map()    // sessionId -> InputActions
+  const selectionDetailSubs = new Set()
+  let selectionDetailRequest = null
+  let selectionSessions = null          // ClientSessions 服务（取每会话 binding.ctx 发输入事件）
+  let selectionIdSeq = 0
+  let selectionStorageTimer = null
 
-  const contextItemsOf = (sessionId) => contextBySession.get(sessionId) ?? []
+  const tokenOf = (id) => `[选段#${id}]`
+  const previewOf = (text, max = 220) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+
+  /** 选区矩形兜底：菜单给的 rect 失效时退回锚点元素/默认位置。 */
+  const normalizeSelectionRect = (rect, anchorEl) => {
+    const finite = (n) => typeof n === 'number' && Number.isFinite(n)
+    if (rect && finite(rect.left) && finite(rect.top) && finite(rect.right) && finite(rect.bottom)) return rect
+    const el = anchorEl instanceof Element ? anchorEl : null
+    if (el) {
+      const r = el.getBoundingClientRect()
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }
+    }
+    return { left: 16, top: 80, right: 16, bottom: 80, width: 0, height: 0 }
+  }
+
+  /** chip 标签：Trae 是 `N. 选段文本 · 评论`（评论内联在标签里）。
+   * 有评论时把选段压到 ~14 字（Trae 的 text-content 也只占 50%），
+   * 否则 240px 的 chip 会把评论整段挤没。 */
+  const chipTextOf = (seq, text, comment) => {
+    const quote = String(text ?? '').replace(/\s+/g, ' ').trim()
+    const note = String(comment ?? '').replace(/\s+/g, ' ').trim()
+    if (!note) return `${seq}. ${quote}`
+    const head = quote.length > 14 ? `${quote.slice(0, 14)}…` : quote
+    return `${seq}. ${head} · ${note.slice(0, 40)}`
+  }
+  const chipLabelOf = (item) => `${CHIP_MARK}${chipTextOf(item.seq, item.text, item.comment)}`
+
+  /**
+   * 某条 chip 在 detect 坐标里的跨度。occurrences 的 offset 是 clipboard
+   * 坐标（chip 展开成 clipboardText），detect 坐标里每条 chip 只占 1 个
+   * U+FFFC——把前面所有 chip 的 (length-1) 扣掉即得。
+   */
+  function chipSpanOf(occurrences, ref, draftRev) {
+    const own = (occurrences ?? []).find((occ) => occ.source === SELECTION_SOURCE && occ.ref === ref)
+    if (!own) return null
+    let start = own.offset
+    for (const occ of occurrences) if (occ.offset < own.offset) start -= occ.length - 1
+    return { start, end: start + 1, draftRev }
+  }
+
+  /** 当前草稿里真实存在的条目，按草稿里的先后顺序（Trae 的编号顺序）。 */
+  function liveSelectionItems(sessionId, occurrences) {
+    if (!sessionId) return []
+    const seen = new Set()
+    const live = []
+    for (const occ of occurrences ?? []) {
+      if (occ.source !== SELECTION_SOURCE || seen.has(occ.ref)) continue
+      seen.add(occ.ref)
+      const item = selectionItems.get(occ.ref)
+      if (item && item.sessionId === sessionId) live.push(item)
+    }
+    return live
+  }
 
   async function postContext(sessionId, items) {
     if (!sessionId) return
@@ -204,26 +360,119 @@ function createPromptsClient(require) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          // 排除项（👁）不随发送：Trae 的 eye/eyeClosed 同语义——保留在列表但不注入
-          items: items.filter((item) => !item.excluded).map(({ text, comment }) => ({ text, comment })),
+          items: items.map(({ text, comment }) => ({
+            text: String(text ?? '').slice(0, CONTEXT_TEXT_MAX),
+            comment: String(comment ?? '').slice(0, CONTEXT_COMMENT_MAX),
+          })),
         }),
         keepalive: true,
       })
     } catch { /* 网络失败时服务端保留上一份，不打断输入 */ }
   }
 
-  function snapshotContext(sessionId, items) {
+  /** 服务端 /context 同步：150ms 防抖；发送意图用 immediate flush。 */
+  function syncSelectionContext(sessionId, items, immediate) {
     if (!sessionId) return
-    if (items.length === 0) contextBySession.delete(sessionId)
-    else contextBySession.set(sessionId, items)
-    const previous = contextSyncTimers.get(sessionId)
+    const previous = selectionSyncTimers.get(sessionId)
     if (previous) clearTimeout(previous)
-    const timer = setTimeout(() => {
-      contextSyncTimers.delete(sessionId)
+    const send = () => {
+      selectionSyncTimers.delete(sessionId)
       void postContext(sessionId, items)
-    }, 150)
-    contextSyncTimers.set(sessionId, timer)
+    }
+    if (immediate) send()
+    else selectionSyncTimers.set(sessionId, setTimeout(send, 150))
   }
+
+  /** 落 sessionStorage：消息正文的 chip 在刷新后仍有文本/评论可渲染。 */
+  function persistSelectionItems() {
+    if (typeof sessionStorage === 'undefined' || selectionStorageTimer) return
+    selectionStorageTimer = setTimeout(() => {
+      selectionStorageTimer = null
+      try {
+        const snapshot = [...selectionItems.values()].slice(-120).map((item) => ({
+          id: item.id,
+          sessionId: item.sessionId,
+          seq: item.seq,
+          text: item.text,
+          comment: item.comment,
+          sent: item.sent === true,
+          at: item.at,
+        }))
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+      } catch { /* 配额/隐私模式：忽略 */ }
+    }, 400)
+  }
+
+  function loadSelectionItems() {
+    if (typeof sessionStorage === 'undefined') return
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '[]')
+      if (!Array.isArray(saved)) return
+      for (const raw of saved) {
+        if (!raw?.id || !raw?.text) continue
+        const id = String(raw.id)
+        if (selectionItems.has(id)) continue
+        const sessionId = String(raw.sessionId ?? '')
+        const seq = Number(raw.seq) || 0
+        selectionItems.set(id, {
+          id, sessionId, seq,
+          text: String(raw.text),
+          comment: String(raw.comment ?? ''),
+          anchor: null,
+          sent: raw.sent === true,
+          archived: true, // 历史条目：chip 已不在草稿里，只用于消息正文展示
+          at: Number(raw.at) || Date.now(),
+        })
+      }
+    } catch { /* 存档损坏：忽略 */ }
+  }
+
+  /** 走会话作用域的 slash/input-insert-reference 事件把 chip 插进官方编辑器。 */
+  function applySelectionInsert(sessionId, item, span) {
+    if (!span) return false
+    const binding = selectionSessions?.binding?.(sessionId)
+    const actx = binding?.ctx
+    if (!actx) return false
+    const request = {
+      reference: {
+        source: SELECTION_SOURCE,
+        ref: item.id,
+        label: chipLabelOf(item),
+        clipboardText: tokenOf(item.id),
+      },
+      span,
+    }
+    try {
+      if (typeof actx.bail === 'function') {
+        try { return actx.bail(actx, 'slash/input-insert-reference', request) === true }
+        catch { /* 有些版本只接受 (name, payload) */ }
+        try { return actx.bail('slash/input-insert-reference', request) === true }
+        catch { return false }
+      }
+      if (typeof actx.emit === 'function') {
+        actx.emit(actx, 'slash/input-insert-reference', request)
+        return true
+      }
+    } catch { return false }
+    return false
+  }
+
+  /** 删除一条 chip：用 insertText('') 替换它的 detect 跨度（空文本即删除）。 */
+  function applySelectionRemove(sessionId, item, span) {
+    if (!span) return false
+    const actions = selectionActions.get(sessionId)
+    if (typeof actions?.insertText !== 'function') return false
+    try { return actions.insertText('', span) === true } catch { return false }
+  }
+
+  function requestSelectionDetail(sessionId, id, focus) {
+    selectionDetailRequest = { sessionId, id, focus: focus === true }
+    for (const listener of selectionDetailSubs) {
+      try { listener() } catch { /* ignore */ }
+    }
+  }
+
+  loadSelectionItems()
 
   /** 找出正文里的 {{变量}}，去重保序。 */
   function varsOf(text) {
@@ -313,6 +562,8 @@ function createPromptsClient(require) {
       if (hideTimer) clearTimeout(hideTimer)
       hideTimer = setTimeout(hide, 1800)
     }
+    // 评论编辑器在 React 侧保存后要提示，复用这个文档级 toast。
+    window.__dshSuperinputToast = toast
     const copySel = async (text) => {
       hide()
       if (!navigator.clipboard?.writeText) { toast('当前环境不支持复制'); return }
@@ -324,14 +575,36 @@ function createPromptsClient(require) {
       }
     }
 
-    /** 把选中文字加到输入框上方的上下文卡片（无卡片环境回退到草稿桥）。
-     * anchorEl：选区起始元素，点 pill 跳回源文用（Trae 同款交互）。 */
-    const addToDraft = (text, anchorEl) => {
+    /** Trae 的「评论到对话」：在选区旁弹一个小评论卡片（不插 chip，保存才插）。
+     * rect 是选区矩形，React 侧用它把卡片锚在选区附近。 */
+    const openComment = (text, anchorEl, rect) => {
+      hide()
+      const open = window.__dshSuperinputCommentContext
+      if (typeof open !== 'function') { toast('评论编辑器未就绪，刷新后重试'); return }
+      let status = 'failed'
+      try {
+        status = open(text, anchorEl, {
+          left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+          width: rect.width, height: rect.height,
+        })
+      } catch { status = 'failed' }
+      if (status === 'full') toast(`最多添加 ${CONTEXT_MAX} 段对话内容`)
+      else if (status === 'empty') toast('选段为空')
+      else if (status === 'failed') toast('打开评论编辑器失败')
+    }
+
+    /** 把选中文字加进对话，再把选区旁的卡片切成评论编辑器（Trae addThenComment
+     * 同义：先 add，再 comment；取消编辑时 chip 保留、只是没有评论）。
+     * anchorEl：选区起始元素，点 chip 跳回源文用（Trae 同款交互）。 */
+    const addToDraft = (text, anchorEl, rect) => {
       hide()
       const addContext = window.__dshSuperinputAddContext
       if (typeof addContext === 'function') {
         try {
-          const status = addContext(text, anchorEl)
+          const status = addContext(text, anchorEl, rect ? {
+            left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+            width: rect.width, height: rect.height,
+          } : undefined)
           toast(status === 'added' ? '已添加到对话'
             : status === 'dup' ? '该选段已在列表中'
               : status === 'full' ? `最多添加 ${CONTEXT_MAX} 段对话内容`
@@ -388,8 +661,8 @@ function createPromptsClient(require) {
             const rect = sel.getRangeAt(0).getBoundingClientRect()
             if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
             const container = ensureHost()
-            // 横排菜单（复制 / 添加到对话 / 存为模板 ≈210px）：左缘对齐选区，右侧防溢出
-            container.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 226))}px`
+            // 横排菜单（复制 / 评论到对话 / 添加到对话 / 存为模板 ≈330px）：左缘对齐选区，右侧防溢出
+            container.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 340))}px`
             container.style.top = `${Math.max(8, rect.top - 44)}px`
             container.style.transform = ''
             container.style.display = 'block'
@@ -406,7 +679,8 @@ function createPromptsClient(require) {
             }
             menu.append(
               mkItem('复制', copySel),
-              mkItem('添加到对话', (text) => addToDraft(text, el)),
+              mkItem('评论到对话', (text) => openComment(text, el, rect)),
+              mkItem('添加到对话', (text) => addToDraft(text, el, rect)),
               mkItem('存为模板', save))
             container.replaceChildren(menu)
           } catch { /* ignore */ }
@@ -715,95 +989,262 @@ function createPromptsClient(require) {
     render() { return this.state.crashed ? null : this.props.children }
   }
 
-  /** 划选上下文卡片：输入框上方的独立列表，支持逐条评论/移除。 */
-  function SelectionContextChips({ session, useInput }) {
-    const sessionId = session?.sessionId === undefined ? '' : String(session.sessionId)
-    const [items, setItems] = React.useState([])
-    const itemsRef = React.useRef(items)
-    const phase = useInput((state) => state.phase)
-    const previousPhase = React.useRef(phase)
+  /** 详情弹窗：Trae 点 chip 打开的**只读** Dialog（引用全文 + 评论 + 跳转原文）。
+   * 评论不在这个弹窗里编辑——Trae 的评论在选区旁的 previewCommentCard 输入；
+   * 这里只展示结果（与 ai-modules-chat 的 mention-info-modal 同构）。 */
+  function SelectionDetail({ title, text, comment, onNavigate, onClose }) {
+    const maskRef = React.useRef(null)
 
+    /* 桌面壳（Electron）里 body 会变成 0×0 的 fixed 包含块：`inset: 0` 的遮罩
+     * 缩在左下角，弹窗被裁掉。打开后量一次遮罩实际矩形，若没有铺满视口，
+     * 就按测量偏移把遮罩校正回视口原点并铺满——不依赖宿主沿用哪种 portal。 */
     React.useEffect(() => {
-      const next = sessionId ? contextItemsOf(sessionId) : []
-      itemsRef.current = next
-      setItems(next)
-    }, [sessionId])
-
-    React.useEffect(() => {
-      itemsRef.current = items
-    }, [items])
-
-    React.useEffect(() => {
-      if (!sessionId) return undefined
-      const add = (text, anchorEl) => {
-        const clean = String(text ?? '').trim()
-        if (!clean) return 'empty'
-        // Trae addContext 按 id 去重：同一段选文不重复入列，改为展开已有
-        // 条目让用户直接补评论。
-        const existing = itemsRef.current.find((entry) => entry.text === clean)
-        if (existing) {
-          const next = itemsRef.current.map((entry) => entry.id === existing.id ? { ...entry, open: true } : entry)
-          itemsRef.current = next
-          setItems(next)
-          snapshotContext(sessionId, next)
-          return 'dup'
+      const mask = maskRef.current
+      if (!mask || typeof window === 'undefined') return undefined
+      let corrected = false
+      const fix = () => {
+        const vw = window.innerWidth
+        const vh = window.innerHeight
+        if (!corrected) {
+          const rect = mask.getBoundingClientRect()
+          if (rect.width >= vw * 0.8 && rect.height >= vh * 0.8) return
+          corrected = true
+          mask.style.position = 'fixed'
+          mask.style.inset = 'auto'
+          mask.style.left = `${-rect.left}px`
+          mask.style.top = `${-rect.top}px`
+          mask.style.display = 'flex'
+          mask.style.alignItems = 'center'
+          mask.style.justifyContent = 'center'
+          report(`selection dialog: corrected mask ${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.left)},${Math.round(rect.top)} to viewport ${vw}x${vh}`)
         }
-        if (itemsRef.current.length >= CONTEXT_MAX) return 'full'
-        // 源锚点：Trae 的 payload 带源位置（点击卡片 revealRangeInCenter）——
-        // 这里存选区起始元素的弱引用，点 pill 跳回源文并闪烁；断线（重渲染
-        // 重建节点）时跳转静默降级为无操作。
-        // open:true：Trae 在采集时即收集评论（SoloBrowser 选段流程），这里
-        // 添加后立即展开评论框，省一次寻找入口的成本。
-        const next = [...itemsRef.current, {
-          id: `ctx-${Date.now().toString(36)}-${contextSeq += 1}`,
-          text: clean,
-          comment: '',
-          excluded: false,
-          open: true,
-          anchor: anchorEl instanceof Element ? new WeakRef(anchorEl) : null,
-        }]
-        itemsRef.current = next
-        setItems(next)
-        snapshotContext(sessionId, next)
-        return 'added'
+        mask.style.width = `${vw}px`
+        mask.style.height = `${vh}px`
+        mask.style.boxSizing = 'border-box'
       }
-      window.__dshSuperinputAddContext = add
-      return () => {
-        if (window.__dshSuperinputAddContext === add) delete window.__dshSuperinputAddContext
-      }
-    }, [sessionId])
+      fix()
+      window.addEventListener('resize', fix)
+      return () => window.removeEventListener('resize', fix)
+    }, [])
 
-    const clearForSend = () => {
-      if (itemsRef.current.length === 0) return
-      // 发送意图已发生：先撤销未触发的防抖计时器（否则它会在清空后把旧
-      // 数据写回服务端，下一轮被重复注入），再把最新评论同步给服务端。
-      const pendingTimer = contextSyncTimers.get(sessionId)
-      if (pendingTimer) { clearTimeout(pendingTimer); contextSyncTimers.delete(sessionId) }
-      void postContext(sessionId, itemsRef.current)
-      itemsRef.current = []
-      setItems([])
-      contextBySession.delete(sessionId)
+    return h('div', {
+      ref: maskRef,
+      className: 'dsh-si-mask',
+      onMouseDown: (event) => { event.stopPropagation(); onClose?.() },
+    },
+      h('div', {
+        className: 'dsh-si-dialog',
+        onMouseDown: (event) => event.stopPropagation(),
+        onClick: (event) => event.stopPropagation(),
+      },
+        h('div', { className: 'dsh-si-dialog-head' },
+          h('span', { className: 'dsh-si-dialog-title' }, title),
+          h('button', { className: 'dsh-si-dialog-x', 'aria-label': '关闭', onClick: () => onClose?.() }, '×')),
+        h('div', { className: 'dsh-si-dialog-quote' }, text),
+        comment ? h(React.Fragment, null,
+          h('div', { className: 'dsh-si-dialog-label' }, '评论'),
+          h('div', { className: 'dsh-si-dialog-detail' }, comment)) : null,
+        h('div', { className: 'dsh-si-dialog-foot' },
+          onNavigate ? h('button', { className: 'dsh-si-dialog-btn', onClick: onNavigate }, '跳转原文') : null,
+          h('span', { className: 'dsh-si-dialog-spacer' }),
+          h('button', { className: 'dsh-si-dialog-btn ghost', onClick: () => onClose?.() }, '关闭')))
+    )
+  }
+
+  /** 划选评论编辑器：Trae previewCommentCard 同构——锚在选区旁的小卡片，
+   * 不遮罩、点外关闭；保存后才把「选段 + 评论」插成输入框 chip。 */
+  function SelectionCommentEditor({ draft, onSave, onCancel }) {
+    const [value, setValue] = React.useState(draft.comment ?? '')
+    const cardRef = React.useRef(null)
+    const valueRef = React.useRef(value)
+    React.useEffect(() => { valueRef.current = value }, [value])
+
+    React.useEffect(() => {
+      const card = cardRef.current
+      if (!card || typeof window === 'undefined') return
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const margin = 8
+      const width = Math.min(340, vw - margin * 2)
+      card.style.width = `${width}px`
+      const height = card.getBoundingClientRect().height || 210
+      const rect = draft.rect ?? {}
+      let left = Math.min(Math.max(margin, (rect.left ?? 16) + 20), Math.max(margin, vw - width - margin))
+      let top = (rect.bottom ?? 80) + 8
+      if (top + height > vh - margin) top = Math.max(margin, (rect.top ?? 80) - height - 8)
+      // 先放到期望位置；桌面壳若把 fixed 包含块变成 0×0，再按实际偏差校正。
+      card.style.visibility = 'hidden'
+      card.style.left = `${left}px`
+      card.style.top = `${top}px`
+      const actual = card.getBoundingClientRect()
+      const dx = actual.left - left
+      const dy = actual.top - top
+      if (Math.abs(dx) > 1) card.style.left = `${left - dx}px`
+      if (Math.abs(dy) > 1) card.style.top = `${top - dy}px`
+      card.style.visibility = 'visible'
+      const textarea = card.querySelector('textarea')
+      if (textarea) {
+        textarea.focus()
+        textarea.setSelectionRange?.(textarea.value.length, textarea.value.length)
+      }
+    }, [draft])
+
+    React.useEffect(() => {
+      const onDown = (event) => {
+        if (cardRef.current?.contains(event.target)) return
+        onCancel?.()
+      }
+      document.addEventListener('mousedown', onDown, true)
+      return () => document.removeEventListener('mousedown', onDown, true)
+    }, [onCancel])
+
+    return createPortal(h('div', {
+      ref: cardRef,
+      className: 'dsh-si-comment-editor',
+      onMouseDown: (event) => event.stopPropagation(),
+      onClick: (event) => event.stopPropagation(),
+    },
+      h('div', { className: 'dsh-si-comment-head' }, '评论到对话'),
+      h('div', { className: 'dsh-si-comment-quote' }, previewOf(draft.text, 100)),
+      h('textarea', {
+        className: 'dsh-si-dialog-comment',
+        value,
+        placeholder: '输入你的评论...',
+        onInput: (event) => setValue(event.target.value),
+        onKeyDown: (event) => {
+          event.stopPropagation()
+          if (event.key === 'Escape') { event.preventDefault(); onCancel?.() }
+          else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
+            onSave?.(valueRef.current)
+          }
+        },
+      }),
+      h('div', { className: 'dsh-si-comment-foot' },
+        h('button', { className: 'dsh-si-dialog-btn ghost', onClick: onCancel }, '取消'),
+        h('span', { className: 'dsh-si-dialog-spacer' }),
+        h('button', { className: 'dsh-si-dialog-btn primary', onClick: () => onSave?.(value) }, '保存'))
+    ), document.body)
+  }
+
+  /** 划选引用桥：把「添加到对话」插成输入框内的官方 reference chip。
+   * Trae 的引用是编辑器里的内联节点（conversation-selection-mention-symbol），
+   * dsh 对外只开放 reference chip 这一条内联通道——这里注册自定义 source，
+   * 用 slash/input-insert-reference 落 chip，并按 Trae 规格重着色。
+   * 输入框上方不再有独立 pill 行。 */
+  function SelectionContextBridge({ session, useInput, inputActions }) {
+    const sessionId = session?.sessionId === undefined ? '' : String(session.sessionId)
+    const draftRev = useInput((state) => state?.draftRev ?? 0)
+    const occurrences = useInput((state) => state?.occurrences)
+    const phase = useInput((state) => state?.phase)
+    const snapshotRef = React.useRef({ draftRev, occurrences })
+    const actionsRef = React.useRef(inputActions)
+    const previousPhase = React.useRef(phase)
+    const [, setVersion] = React.useState(0)
+    const [dialog, setDialog] = React.useState(null)
+    const [editor, setEditor] = React.useState(null)
+    const bump = () => setVersion((value) => value + 1)
+
+    React.useEffect(() => {
+      snapshotRef.current = { draftRev, occurrences }
+      actionsRef.current = inputActions
+    }, [draftRev, occurrences, inputActions])
+
+    React.useEffect(() => {
+      if (!sessionId || !inputActions) return undefined
+      selectionActions.set(sessionId, inputActions)
+      return () => {
+        if (selectionActions.get(sessionId) === inputActions) selectionActions.delete(sessionId)
+      }
+    }, [sessionId, inputActions])
+
+    /** 发送意图：把当前 chip 立即同步给服务端（pre-step 读取），并标记发送。 */
+    const flushForSend = () => {
+      if (!sessionId) return
+      const live = liveSelectionItems(sessionId, snapshotRef.current.occurrences)
+      if (live.length === 0) return
+      syncSelectionContext(sessionId, live, true)
+      for (const item of live) item.sent = true
+      persistSelectionItems()
+    }
+
+    /** 插入/更新一条选段 chip；comment === undefined 表示「不改已有评论」。 */
+    const insertSelection = (text, anchorEl, comment) => {
+      const clean = String(text ?? '').trim().slice(0, CONTEXT_TEXT_MAX)
+      if (!clean) return { status: 'empty' }
+      const live = liveSelectionItems(sessionId, snapshotRef.current.occurrences)
+      const existing = live.find((entry) => entry.text === clean)
+      if (existing) {
+        if (comment !== undefined) {
+          const next = String(comment ?? '').slice(0, CONTEXT_COMMENT_MAX).trim()
+          if (next !== (existing.comment ?? '')) {
+            existing.comment = next
+            const span = chipSpanOf(snapshotRef.current.occurrences, existing.id, snapshotRef.current.draftRev)
+            if (span) applySelectionInsert(sessionId, existing, span)
+            bump()
+            syncSelectionContext(sessionId, liveSelectionItems(sessionId, snapshotRef.current.occurrences), false)
+            persistSelectionItems()
+          }
+        }
+        return { status: 'dup', id: existing.id, item: existing }
+      }
+      if (live.length >= CONTEXT_MAX) return { status: 'full' }
+      const actions = actionsRef.current
+      if (typeof actions?.captureInsertion !== 'function') return { status: 'failed' }
+      let span
+      try {
+        const insertion = actions.captureInsertion()
+        // 折叠到选区末尾：只插入、不替换用户已选中的草稿文字。
+        span = { start: insertion.end, end: insertion.end, draftRev: insertion.draftRev }
+      } catch { return { status: 'failed' } }
+      // 显示序号按当前输入框里的条目数重排（Trae 每个草稿从 1 开始）。
+      const seq = live.reduce((max, entry) => Math.max(max, entry.seq ?? 0), 0) + 1
+      const id = `${Date.now().toString(36)}${(++selectionIdSeq).toString(36)}`
+      const item = {
+        id, sessionId, seq,
+        text: clean,
+        comment: comment === undefined ? '' : String(comment ?? '').slice(0, CONTEXT_COMMENT_MAX).trim(),
+        anchor: anchorEl instanceof Element ? new WeakRef(anchorEl) : null,
+        sent: false,
+        archived: false,
+        at: Date.now(),
+      }
+      if (!applySelectionInsert(sessionId, item, span)) return { status: 'failed' }
+      selectionItems.set(id, item)
+      bump()
+      syncSelectionContext(sessionId, [...live, item], false)
+      persistSelectionItems()
+      return { status: 'added', id, item }
+    }
+
+    /** 删除一条选段：chip + 条目 + 服务端同步（hover × / 编辑器移除共用）。 */
+    const dropSelectionItem = (item) => {
+      if (!item) return
+      const span = chipSpanOf(snapshotRef.current.occurrences, item.id, snapshotRef.current.draftRev)
+      if (span) applySelectionRemove(item.sessionId, item, span)
+      selectionItems.delete(item.id)
+      bump()
+      syncSelectionContext(item.sessionId, liveSelectionItems(item.sessionId, snapshotRef.current.occurrences), false)
+      persistSelectionItems()
     }
 
     React.useEffect(() => {
       const was = previousPhase.current
       previousPhase.current = phase
-      if (was === 'submitting' || phase !== 'submitting') return
-      clearForSend()
+      if (was !== 'submitting' && phase === 'submitting') flushForSend()
     }, [phase, sessionId])
 
-    // 发送按钮点击 / 输入框 Enter 是比 phase 更可靠的发送意图信号；
-    // 挂 window capture，先于宿主与 enhancer 的 document 监听执行。
+    // 发送按钮 / Enter 比 phase 更早、更可靠；window capture 先于宿主监听。
     React.useEffect(() => {
       if (!sessionId) return undefined
       const onClick = (event) => {
         const target = event.target
-        if (target?.closest?.('button[aria-label*="发送消息"], button[aria-label*="Send"], button[aria-label*="send"]')) clearForSend()
+        if (target?.closest?.('button[aria-label*="发送消息"], button[aria-label*="Send"], button[aria-label*="send"]')) flushForSend()
       }
       const onKey = (event) => {
         if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
         if (!event.target?.closest?.('[contenteditable="true"]')) return
-        clearForSend()
+        flushForSend()
       }
       window.addEventListener('click', onClick, true)
       window.addEventListener('keydown', onKey, true)
@@ -813,18 +1254,115 @@ function createPromptsClient(require) {
       }
     }, [sessionId])
 
-    const update = (id, patch) => {
-      const next = itemsRef.current.map((item) => item.id === id ? { ...item, ...patch } : item)
-      itemsRef.current = next
-      setItems(next)
-      snapshotContext(sessionId, next)
-    }
+    // 草稿里的 chip 被键盘删掉 / 发送后清空：以 occurrences 为真相修剪条目。
+    React.useEffect(() => {
+      if (!sessionId) return
+      const refs = new Set()
+      for (const occ of occurrences ?? []) if (occ.source === SELECTION_SOURCE) refs.add(occ.ref)
+      let changed = false
+      for (const [id, item] of selectionItems) {
+        if (item.sessionId !== sessionId) continue
+        if (item.archived) {
+          // 草稿恢复出的历史 chip：重新激活，参与同步
+          if (refs.has(id)) { item.archived = false; item.sent = false; changed = true }
+          continue
+        }
+        if (refs.has(id)) continue
+        if (item.sent) { item.archived = true; changed = true; continue }
+        selectionItems.delete(id)
+        changed = true
+      }
+      if (changed) bump()
+      syncSelectionContext(sessionId, liveSelectionItems(sessionId, occurrences), false)
+      persistSelectionItems()
+    }, [occurrences, sessionId])
 
-    if (items.length === 0) return null
+    // 详情弹窗请求（chip 点击 → source.openReference；添加成功后也会主动打开）。
+    React.useEffect(() => {
+      if (!sessionId) return undefined
+      const listener = () => {
+        const request = selectionDetailRequest
+        if (!request || request.sessionId !== sessionId) return
+        selectionDetailRequest = null
+        const item = selectionItems.get(request.id)
+        if (!item) return
+        setEditor(null)
+        setDialog({ id: request.id })
+      }
+      selectionDetailSubs.add(listener)
+      listener()
+      return () => { selectionDetailSubs.delete(listener) }
+    }, [sessionId])
 
-    /** 点标签主体：展开态聚焦评论框；否则跳回源文（Trae revealRangeInCenter 同义）并展开。 */
-    const activate = (item) => {
-      if (item.open) return
+    // Trae 的两个入口（previewCommentCard）：
+    // - 添加到对话：先插 chip，再把选区旁的卡片原位切成评论编辑器（addThenComment）；
+    // - 评论到对话：先弹评论卡片，保存后才插 chip（带评论）。
+    React.useEffect(() => {
+      if (!sessionId) return undefined
+      const add = (text, anchorEl, rect) => {
+        const result = insertSelection(text, anchorEl, undefined)
+        if (result.status === 'added' || result.status === 'dup') {
+          const item = result.item ?? (result.id ? selectionItems.get(result.id) : null)
+          if (item) {
+            // Trae addThenComment：chips 已经进输入框，卡片原位切换为评论编辑。
+            setDialog(null)
+            setEditor({
+              id: item.id,
+              text: item.text,
+              comment: item.comment ?? '',
+              anchorEl: anchorEl instanceof Element ? anchorEl : null,
+              rect: normalizeSelectionRect(rect, anchorEl),
+            })
+          }
+        }
+        return result.status
+      }
+      const openComment = (text, anchorEl, rect) => {
+        const clean = String(text ?? '').trim().slice(0, CONTEXT_TEXT_MAX)
+        if (!clean) return 'empty'
+        const live = liveSelectionItems(sessionId, snapshotRef.current.occurrences)
+        const existing = live.find((entry) => entry.text === clean)
+        if (!existing && live.length >= CONTEXT_MAX) return 'full'
+        setDialog(null)
+        setEditor({
+          id: existing?.id ?? null,
+          text: clean,
+          comment: existing?.comment ?? '',
+          anchorEl: anchorEl instanceof Element ? anchorEl : null,
+          rect: normalizeSelectionRect(rect, anchorEl),
+        })
+        return 'opened'
+      }
+      window.__dshSuperinputAddContext = add
+      window.__dshSuperinputCommentContext = openComment
+      return () => {
+        if (window.__dshSuperinputAddContext === add) delete window.__dshSuperinputAddContext
+        if (window.__dshSuperinputCommentContext === openComment) delete window.__dshSuperinputCommentContext
+      }
+    }, [sessionId])
+
+    // chip 悬停时左侧图标变 ×（Trae remove-mention-icon）；点左侧 20px 移除。
+    React.useEffect(() => {
+      if (!sessionId) return undefined
+      const onClick = (event) => {
+        const target = event.target
+        const chip = target?.closest?.('span[title]')
+        if (!chip || !chip.closest?.('[contenteditable="true"]')) return
+        if (!String(chip.title || '').startsWith(CHIP_MARK)) return
+        const rect = chip.getBoundingClientRect()
+        if (event.clientX > rect.left + 20 || !chip.matches(':hover')) return
+        const label = String(chip.title)
+        const item = [...selectionItems.values()].find((entry) => entry.sessionId === sessionId && chipLabelOf(entry) === label)
+        if (!item) return
+        event.preventDefault()
+        event.stopPropagation()
+        dropSelectionItem(item)
+      }
+      document.addEventListener('click', onClick, true)
+      return () => document.removeEventListener('click', onClick, true)
+    }, [sessionId])
+
+    const navigateTo = (item) => {
       try {
         const el = item.anchor?.deref?.()
         if (el?.isConnected) {
@@ -833,78 +1371,90 @@ function createPromptsClient(require) {
           setTimeout(() => el.classList.remove('dsh-cp-flash'), 1600)
         }
       } catch { /* 锚点失效：静默降级 */ }
-      update(item.id, { open: true })
     }
 
-    return h('div', { className: 'dsh-cp-ctxbar' },
-      items.map((item, index) => h(React.Fragment, { key: item.id },
-        h('div', {
-          className: `dsh-cp-ctxpill${item.open ? ' dsh-cp-ctxpill-open' : ''}${item.excluded ? ' dsh-cp-ctxpill-excluded' : ''}`,
-          title: item.text,
-          onClick: () => activate(item),
-        },
-          h('span', { className: 'dsh-cp-ctxpill-label' },
-            `选段 ${index + 1} · ${String(item.text).replace(/\s+/g, ' ').slice(0, 30)}`),
-          item.comment
-            ? [
-              h('span', { className: 'dsh-cp-ctxpill-sep', key: 'sep' }, '·'),
-              h('span', {
-                className: 'dsh-cp-ctxpill-comment', key: 'cmt',
-                title: item.comment,
-                onClick: (event) => { event.stopPropagation(); update(item.id, { open: true }) },
-              },
-                h('svg', { className: 'dsh-cp-ctxpill-bubble', viewBox: '0 0 16 16', 'aria-hidden': true },
-                  h('path', {
-                    d: 'M8 2.5c3.1 0 5.7 2.1 5.7 4.8S11.1 12.1 8 12.1c-.8 0-1.5-.1-2.2-.4L3.4 13l.7-2.2C2.8 9.9 2.3 8.7 2.3 7.3c0-2.7 2.6-4.8 5.7-4.8z',
-                    fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linejoin': 'round',
-                  })),
-                h('span', { className: 'dsh-cp-ctxpill-comment-text' }, item.comment)),
-            ]
-            : null,
-          h('button', {
-            className: 'dsh-cp-ctxpill-btn',
-            title: item.excluded ? '已排除，点击恢复随发送' : '临时排除（保留但不随发送）',
-            'aria-label': item.excluded ? '恢复随发送' : '临时排除',
-            onClick: (event) => { event.stopPropagation(); update(item.id, { excluded: !item.excluded }) },
-          }, item.excluded ? '🚫' : '👁'),
-          h('button', {
-            className: 'dsh-cp-ctxpill-btn',
-            title: item.comment ? '编辑评论' : '添加评论',
-            'aria-label': item.comment ? '编辑评论' : '添加评论',
-            onClick: (event) => { event.stopPropagation(); update(item.id, { open: !item.open }) },
-          }, '💬'),
-          h('button', {
-            className: 'dsh-cp-ctxpill-btn',
-            title: '移除这段上下文',
-            'aria-label': '移除这段上下文',
-            onClick: (event) => {
-              event.stopPropagation()
-              const next = itemsRef.current.filter((entry) => entry.id !== item.id)
-              itemsRef.current = next
-              setItems(next)
-              snapshotContext(sessionId, next)
-            },
-          }, '×')),
-        item.open ? h('div', {
-          className: 'dsh-cp-ctxopen',
-          // 拦下 mousedown/mouseup/click：宿主输入框会在点击外部时抢焦点，
-          // 不拦住评论框就打不了字（「评论添加不到输入框」的直接原因）。
-          onMouseDown: (event) => event.stopPropagation(),
-          onMouseUp: (event) => event.stopPropagation(),
-          onClick: (event) => event.stopPropagation(),
-        },
-          h('div', { className: 'dsh-cp-ctxopen-text' }, item.text),
-          h('input', {
-            value: item.comment,
-            placeholder: '对这段内容的评论（可选），发送时一并带给模型',
-            autoFocus: true,
-            onInput: (event) => update(item.id, { comment: event.target.value }),
-            onKeyDown: (event) => {
-              event.stopPropagation()
-              if (event.key === 'Enter' || event.key === 'Escape') update(item.id, { open: false })
-            },
-          })) : null))
-    )
+    /** 评论卡片保存：已有条目更新评论，新条目插 chip（带评论）。 */
+    const saveEditorComment = (comment) => {
+      const draft = editor
+      if (!draft) return
+      const next = String(comment ?? '').slice(0, CONTEXT_COMMENT_MAX).trim()
+      const existing = draft.id ? selectionItems.get(draft.id) : null
+      if (existing) {
+        if (next !== (existing.comment ?? '')) {
+          existing.comment = next
+          const span = chipSpanOf(snapshotRef.current.occurrences, existing.id, snapshotRef.current.draftRev)
+          if (span) applySelectionInsert(existing.sessionId, existing, span)
+          bump()
+          syncSelectionContext(existing.sessionId, liveSelectionItems(existing.sessionId, snapshotRef.current.occurrences), false)
+          persistSelectionItems()
+          window.__dshSuperinputToast?.('已保存评论')
+        }
+      } else {
+        const result = insertSelection(draft.text, draft.anchorEl, next)
+        if (result.status === 'added' || result.status === 'dup') window.__dshSuperinputToast?.('已添加到对话')
+        else if (result.status === 'full') window.__dshSuperinputToast?.(`最多添加 ${CONTEXT_MAX} 段对话内容`)
+        else if (result.status === 'failed') window.__dshSuperinputToast?.('保存失败')
+      }
+      setEditor(null)
+    }
+
+    const dialogItem = dialog ? selectionItems.get(dialog.id) : null
+    const editorNode = editor ? h(SelectionCommentEditor, {
+      key: `comment:${editor.id ?? 'new'}:${editor.text}`,
+      draft: editor,
+      onSave: saveEditorComment,
+      onCancel: () => setEditor(null),
+    }) : null
+    const detailNode = dialogItem ? createPortal(h(SelectionDetail, {
+      title: `${dialogItem.seq}. ${previewOf(dialogItem.text, 48)}`,
+      text: dialogItem.text,
+      comment: dialogItem.comment,
+      onNavigate: dialogItem.anchor ? () => navigateTo(dialogItem) : null,
+      onClose: () => setDialog(null),
+    }), document.body) : null
+    if (!editorNode && !detailNode) return null
+    return h(React.Fragment, null, editorNode, detailNode)
+  }
+
+  /** 消息正文的选段 chip：user-text 规则把 token 换成同款标签（Trae 消息里的
+   * mention chip 同义）。刷新后条目由 sessionStorage 恢复。 */
+  const selectionUserTextRule = {
+    id: SELECTION_RULE,
+    order: 5,
+    match(text, from) {
+      const re = /\[选段#([0-9a-z]+)\]/g
+      re.lastIndex = from
+      const found = re.exec(text)
+      if (!found) return undefined
+      const item = selectionItems.get(found[1])
+      if (!item) return undefined
+      return {
+        id: SELECTION_RULE,
+        start: found.index,
+        end: found.index + found[0].length,
+        data: { id: item.id, seq: item.seq, text: item.text, comment: item.comment },
+      }
+    },
+  }
+
+  function SelectionMessageChip({ node, interactive }) {
+    const data = node?.data ?? {}
+    const [open, setOpen] = React.useState(false)
+    const label = chipTextOf(data.seq, data.text, data.comment)
+    return h(React.Fragment, null,
+      h('span', {
+        className: `dsh-si-msgchip${interactive ? ' interactive' : ''}`,
+        title: data.text,
+        onClick: interactive ? () => setOpen(true) : undefined,
+      },
+        h('span', { className: 'dsh-si-msgchip-icon', 'aria-hidden': true }),
+        h('span', { className: 'dsh-si-msgchip-label' }, label)),
+      open ? createPortal(h(SelectionDetail, {
+        title: label,
+        text: data.text,
+        comment: data.comment,
+        onClose: () => setOpen(false),
+      }), document.body) : null)
   }
 
   /** 草稿桥：划选「添加到对话」、模板插入、/ 命令插入共用。
@@ -994,6 +1544,56 @@ function createPromptsClient(require) {
         order: 4,
       }, (props) => h(PromptsBoundary, null, h(PromptsButton, { ...props, onSyncSlash: syncSlash }))))
 
+      /* 划选引用的官方 input source：codec 决定 chip 的粘贴文本与送模文本；
+       * candidates 恒空——只是借 @ 触发器的注册位拿到一个合法的自定义
+       * source（官方 chip 插入/序列化按 source 名路由），不往 @ 菜单加条目。 */
+      const selectionSource = {
+        trigger: '@',
+        name: SELECTION_SOURCE,
+        showGroupTitle: false,
+        async candidates() { return [] },
+        onPick() { return undefined },
+        openReference(session, reference) {
+          const targetSession = session?.sessionId === undefined ? '' : String(session.sessionId)
+          const ref = String(reference?.ref ?? '')
+          if (!targetSession || !selectionItems.has(ref)) return false
+          requestSelectionDetail(targetSession, ref, false)
+          return true
+        },
+        codec: {
+          clipboardText: (ref) => tokenOf(ref),
+          serialize: async (ref) => tokenOf(ref),
+        },
+      }
+      ctx.inject(['inputTriggers'], (scope) => {
+        try {
+          const service = scope.get('inputTriggers')
+          ctx.effect(() => service.registerSource(selectionSource), 'dsh-superinput: selection source')
+        } catch (error) {
+          report(`selection source register failed: ${error?.message ?? error}`)
+        }
+      })
+      ctx.inject(['sessions'], (scope) => {
+        selectionSessions = scope.get('sessions')
+      })
+
+      // 消息正文里的同款 chip：user-text 规则 + 节点渲染槽位。
+      ctx.inject(['uiConversation'], (scope) => {
+        try {
+          const ui = scope.get('uiConversation')
+          if (typeof ui?.userText?.register === 'function') {
+            ctx.effect(() => ui.userText.register(selectionUserTextRule), 'dsh-superinput: selection user-text rule')
+          }
+        } catch (error) {
+          report(`selection user-text rule failed: ${error?.message ?? error}`)
+        }
+      })
+      ctx.slots.inject('conversation.user.text.node', () => ctx.slots.register({
+        name: 'conversation.user.text.node',
+        key: SELECTION_RULE,
+        priority: 20,
+      }, SelectionMessageChip))
+
       // 草稿桥挂 input.dock（该槽位注入 useInput / inputActions）
       ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
         name: 'conversation.input.dock',
@@ -1001,12 +1601,12 @@ function createPromptsClient(require) {
         order: 96,
       }, PromptsDraftBridge))
 
-      // 划选上下文卡片：同一槽位的独立列表项，渲染在输入框上方。
+      // 划选引用桥：chip 已内联在编辑器里，这个槽位只提供入口与详情弹窗。
       ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
         name: 'conversation.input.dock',
         id: 'dsh-superinput-selection-context',
         order: 97,
-      }, (props) => h(PromptsBoundary, null, h(SelectionContextChips, props))))
+      }, (props) => h(PromptsBoundary, null, h(SelectionContextBridge, props))))
     },
   }
 }

@@ -125,7 +125,11 @@ try {
   const clientSource = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   assert(clientSource.includes('window.__dshSuperinputSetDraft ='), 'client: draft bridge setter present')
   assert(clientSource.includes('dsh-superinput-prompts-bridge'), 'client: draft bridge registered on input.dock')
-  assert(clientSource.includes('dsh-superinput-selection-context'), 'client: selection context cards registered')
+  assert(clientSource.includes("superinput-selection"), 'client: inline selection reference source registered')
+  assert(clientSource.includes("slash/input-insert-reference"), 'client: chip inserted through the official input event')
+  assert(clientSource.includes('conversation.user.text.node'), 'client: sent-message selection chip renderer registered')
+  assert(clientSource.includes('__dshSuperinputCommentContext'), 'client: selection comment card entry present')
+  assert(clientSource.includes('dsh-si-comment-editor'), 'client: anchored comment editor present (Trae previewCommentCard)')
 
   console.log('SMOKE ALL PASS')
 } catch (error) {

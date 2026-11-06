@@ -2,6 +2,49 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0] - 2026-11-04
+
+### 划选引用改为 Trae 同款「输入框内联 chip」
+
+- **不再使用输入框上方的独立 pill 行**：注册自定义 input source
+  （`superinput-selection`）+ 官方 `slash/input-insert-reference`，把选段直接
+  插成编辑器里的 reference chip（与 @file 同一套机制）。chip 落在光标处，
+  可与草稿文字混排、可整体删除；发送时按 source 的 codec 序列化为
+  `[选段#id]` token。
+- **chip 视觉**：保留 Trae `comment-mention` 的内联结构（高 22px / 12px 500 /
+  max-width 240 / 评论内联在标签里），颜色与圆角改用 dsh 设计令牌
+  （`state-business-tertiary` 底 + `state-business-primary` 文字 +
+  `--dsw-radius-sm` 8px）；隐藏宿主默认的 @ 前缀，换成引号图标；hover 时
+  图标变 ×，点左侧图标区即移除（Trae `remove-mention-icon` 同义）。
+- **评论流程按 Trae 的 `previewCommentCard` 重做**：划选菜单新增「评论到
+  对话」；「添加到对话」先插 chip，再把选区旁的小卡片**原位切成评论编辑器**
+  （Trae `addThenComment` 同义）；「评论到对话」则不插 chip，保存后才带评论
+  插入。编辑器是锚在选区旁的 340px 小卡片，不遮罩、点外取消；取消后已添加
+  的 chip 保留（只是没有评论）。
+- **点 chip 打开只读详情 Dialog**（引用全文 + 评论 + 跳转原文），评论不再在
+  这个弹窗里编辑（与 Trae `mention-info-modal` 同构）。评论保存后重插同 ref
+  的 chip 刷新标签：有评论时按 Trae `has-comment-content` 语义给评论留出
+  可见空间（选段压到 ~14 字）；编号按当前草稿重排（每轮从 1 开始）。
+- **已发送消息也显示 chip**：user-text 规则把 `[选段#id]` token 渲染成同款
+  标签（点开可读全文/评论）；条目文本与评论落 sessionStorage，刷新后仍可
+  渲染。
+- 删除旧的独立 pill 行与 👁 排除切换（Trae 没有该交互）；去重、8 条上限、
+  源文锚点跳转保留。发送按钮/Enter 触发 `/context` 立即 flush，服务端
+  `agent/pre-step` 仍按会话一次性注入。
+- **修桌面壳里详情弹窗错位**：Electron 壳会把 `body` 变成一个 0×0 的
+  fixed 包含块，`inset: 0` 的遮罩缩在窗口左下角，弹窗被裁掉且没有遮罩。
+  打开时测量遮罩实际矩形，未铺满视口就按测量偏移校正回视口原点并居中
+  （border-box + resize 跟随）；Web 端铺满视口时不触发，保持原样。
+- **UI 适配 Harness 设计令牌**：chip 从 Trae 的硬编码灰/蓝改为 dsh 的
+  `state-business-tertiary` 底 + `state-business-primary` 文字 +
+  `--dsw-radius-sm`，图标用 CSS mask 跟随文字色；详情弹窗改用
+  `bg-layer-1` 表面、`--dsw-radius-lg`、`bg-mask-1` 遮罩、dsh 字体与
+  标准按钮（主按钮黑/白、移除为幽灵红、跳转为幽灵文本），标题 16px，
+  引用区弹性收缩；明暗主题随宿主 body 令牌自动切换。
+- 真机验证（dsh web 0.2.1-rc.5）：添加 → 内联 chip → 评论 → 标签刷新 →
+  hover × 删除 → 重复添加去重 → 发送（服务端日志 `items=1`）→ 已发送消息
+  内的 chip；@ 菜单未被自定义 source 污染。
+
 ## [0.8.3] - 2026-11-02
 
 ### 划选弹层门槛降为非空即弹
