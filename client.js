@@ -5138,15 +5138,20 @@ function createPromptsClient(require) {
 .dsh-cp-action:hover { color: var(--dsw-alias-label-primary); }
 .dsh-cp-action.primary { color: #fff; background: #3a83f7; border-color: transparent; }
 .dsh-cp-action.primary:hover { background: #4f8ef9; }
-.dsh-cp-selmenu { display: flex; flex-direction: row; align-items: center; gap: 2px; padding: 3px; border-radius: var(--dsw-radius-lg, 12px);
-  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.85));
-  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
-  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
-  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.1));
+/* 官方选区动作面板（message-quotes 的 text-interaction 槽）上的自有按钮：
+   完全官方样式（.U4oBDW_action 同款声明，老宿主无官方样式时回落）。 */
+.dsh-si-quote-action {
+  background: var(--dsw-alias-button-floating-fill, rgba(116, 126, 148, .24));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l3, rgba(255, 255, 255, .1));
+  box-shadow: var(--dsw-elevation-panel, 0 0 0 .5px var(--dsw-elevation-stroke-color), 0 2px 6px rgba(0, 0, 0, .12));
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13, 13px/18px inherit);
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 10px;
 }
-.dsh-cp-selitem { border: none; background: transparent; text-align: left; padding: 5px 10px; font-size: 12px; line-height: 18px;
-  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.92)); border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; white-space: nowrap; }
-.dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
+.dsh-si-quote-action:focus-visible, .dsh-si-quote-action:hover { background: var(--dsw-alias-button-floating-hover, rgba(116, 126, 148, .36)); }
 .dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
   background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
 /* ---- 划选引用 chip：Trae comment-mention 规格（ai-modules-chat/index.css）----
@@ -5593,136 +5598,6 @@ function createPromptsClient(require) {
     }
     // 评论编辑器在 React 侧保存后要提示，复用这个文档级 toast。
     window.__dshSuperinputToast = toast
-    const copySel = async (text) => {
-      hide()
-      if (!navigator.clipboard?.writeText) { toast('当前环境不支持复制'); return }
-      try {
-        await navigator.clipboard.writeText(text)
-        toast('已复制')
-      } catch {
-        toast('复制失败')
-      }
-    }
-
-    /** Trae 的「评论到对话」：在选区旁弹一个小评论卡片（不插 chip，保存才插）。
-     * rect 是选区矩形，React 侧用它把卡片锚在选区附近。 */
-    const openComment = (text, anchorEl, rect) => {
-      hide()
-      const open = window.__dshSuperinputCommentContext
-      if (typeof open !== 'function') { toast('评论编辑器未就绪，刷新后重试'); return }
-      let status = 'failed'
-      try {
-        status = open(text, anchorEl, {
-          left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
-          width: rect.width, height: rect.height,
-        })
-      } catch { status = 'failed' }
-      if (status === 'full') toast(`最多添加 ${CONTEXT_MAX} 段对话内容`)
-      else if (status === 'empty') toast('选段为空')
-      else if (status === 'failed') toast('打开评论编辑器失败')
-    }
-
-    /** 把选中文字加进对话，再把选区旁的卡片切成评论编辑器（Trae addThenComment
-     * 同义：先 add，再 comment；取消编辑时 chip 保留、只是没有评论）。
-     * anchorEl：选区起始元素，点 chip 跳回源文用（Trae 同款交互）。 */
-    const addToDraft = (text, anchorEl, rect) => {
-      hide()
-      const addContext = window.__dshSuperinputAddContext
-      if (typeof addContext === 'function') {
-        try {
-          const status = addContext(text, anchorEl, rect ? {
-            left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
-            width: rect.width, height: rect.height,
-          } : undefined)
-          toast(status === 'added' ? '已添加到对话'
-            : status === 'dup' ? '该选段已在列表中'
-              : status === 'full' ? `最多添加 ${CONTEXT_MAX} 段对话内容`
-                : '添加失败')
-          return
-        } catch { /* 回退到草稿桥 */ }
-      }
-      try {
-        const set = window.__dshSuperinputSetDraft
-        if (!set) { toast('草稿桥未就绪，刷新后重试'); return }
-        const current = String(window.__dshSuperinputDraft?.() ?? '')
-        set(current ? `${current}\n${text}` : text)
-        toast('已添加到输入框')
-      } catch {
-        toast('添加失败')
-      }
-    }
-
-    const save = async (text) => {
-      const title = text.replace(/\s+/g, ' ').trim().slice(0, 40)
-      hide()
-      try {
-        const res = await fetch('/api/dsh-superinput/prompts/save', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ title, body: text }),
-        })
-        const data = res.ok ? await res.json() : null
-        toast(data?.ok ? '已存为模板' : '保存失败')
-      } catch {
-        toast('保存失败')
-      }
-    }
-
-    // 选区变化驱动（dblclick 选词在 mouseup 之后才成形，selectionchange 才是可靠信号）
-    let showTimer = 0
-    // 弹层门槛：非空即弹（用户明确要求一个字也弹）。
-    document.addEventListener('selectionchange', () => {
-      try {
-        if (showTimer) { clearTimeout(showTimer); showTimer = 0 }
-        const selection = window.getSelection?.()
-        const text = String(selection ?? '').trim()
-        if (!text || !selection.rangeCount) { hide(); return }
-        showTimer = setTimeout(() => {
-          try {
-            const sel = window.getSelection?.()
-            const current = String(sel ?? '').trim()
-            if (!current || !sel.rangeCount) { hide(); return }
-            const node = sel.anchorNode
-            const el = node instanceof Element ? node : node?.parentElement
-            // 只收对话正文：跳过输入区、我们自己的弹层，以及侧栏/设置等非对话区域
-            if (!el || el.closest('[data-dsh-superinput-portal]') || el.closest('[contenteditable="true"], textarea, input')) { hide(); return }
-            if (!el.closest('[data-chat-flow], [data-slot="conversation.chat.flow"]')) { hide(); return }
-            const rect = sel.getRangeAt(0).getBoundingClientRect()
-            if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
-            const container = ensureHost()
-            // 横排菜单（复制 / 评论到对话 / 添加到对话 / 存为模板 ≈330px）：左缘对齐选区，右侧防溢出
-            container.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 340))}px`
-            container.style.top = `${Math.max(8, rect.top - 44)}px`
-            container.style.transform = ''
-            container.style.display = 'block'
-            const menu = document.createElement('div')
-            menu.className = 'dsh-cp-selmenu'
-            // 阻止默认聚焦/清选区：否则 mousedown 触发 selectionchange，菜单会在 click 前被隐藏
-            menu.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault() })
-            const mkItem = (label, action) => {
-              const b = document.createElement('button')
-              b.className = 'dsh-cp-selitem'
-              b.textContent = label
-              b.addEventListener('click', () => { void action(current) })
-              return b
-            }
-            menu.append(
-              mkItem('复制', copySel),
-              mkItem('评论到对话', (text) => openComment(text, el, rect)),
-              mkItem('添加到对话', (text) => addToDraft(text, el, rect)),
-              mkItem('存为模板', save))
-            container.replaceChildren(menu)
-          } catch { /* ignore */ }
-        }, 250)
-      } catch { /* ignore */ }
-    })
-    document.addEventListener('mousedown', (e) => {
-      if (host?.style.display === 'block' && !e.target.closest?.('[data-dsh-superinput-portal="selection"]')) hide()
-    }, true)
-    window.addEventListener('scroll', hide, true)
-    document.addEventListener('selectionchange', () => {
-      if (!String(window.getSelection?.() ?? '').trim()) hide()
-    })
 
     /* Trae dragDropMention 等价：把对话里划选的文字拖进输入框，落成引用 chip。
      * dragstart 时对选区打自定义 dataTransfer 标记 + stash 文本；dragover 放行
@@ -5758,7 +5633,6 @@ function createPromptsClient(require) {
         event.stopPropagation()
         const { text, anchorEl } = dragSelection
         dragSelection = null
-        hide()
         // 尽力把光标挪到落点：宿主 captureInsertion 读到哪就是哪。
         try {
           const range = typeof document.caretRangeFromPoint === 'function'
@@ -6137,6 +6011,40 @@ function createPromptsClient(require) {
           h('span', { className: 'dsh-si-dialog-spacer' }),
           h('button', { className: 'dsh-si-dialog-btn ghost', onClick: () => onClose?.() }, '关闭')))
     )
+  }
+
+  /** 官方选区动作面板上的「添加评论」按钮：完全官方样式（复用官方
+   * .U4oBDW_action 类 + 自带回退），点击清选区并打开 Trae 评论卡。 */
+  function SelectionCommentActionButton({ dismiss, readText, clearSelection, useSession }) {
+    const enabled = useSession
+      ? useSession((s) => !s.removed && (s.subagent === null || (s.subagent.address.mode === 'continuable' && s.subagent.parentAvailable === true)))
+      : true
+    React.useEffect(() => {
+      if (!enabled) dismiss?.()
+    }, [enabled, dismiss])
+    if (!enabled) return null
+    return h('button', {
+      type: 'button',
+      className: 'U4oBDW_action dsh-si-quote-action',
+      'aria-label': '添加评论',
+      onPointerDown: (event) => event.preventDefault(),
+      onClick: () => {
+        const selection = window.getSelection?.()
+        const text = String(selection ?? '').trim()
+        let rect = null
+        let anchorEl = null
+        if (selection?.rangeCount) {
+          const range = selection.getRangeAt(0)
+          rect = range.getBoundingClientRect()
+          const node = range.startContainer
+          anchorEl = node instanceof Element ? node : node?.parentElement
+        }
+        if (!text) { dismiss?.(); return }
+        clearSelection?.()
+        dismiss?.()
+        window.__dshSuperinputCommentContext?.(text, anchorEl, rect)
+      },
+    }, '添加评论')
   }
 
   /** 划选评论编辑器：照抄 Trae CommentEditorCard——无标题/无预览/无取消钮，
@@ -6605,7 +6513,7 @@ function createPromptsClient(require) {
   }
 
   return {
-    inject: ['slots'],
+    inject: ['slots', 'sessions', 'uiConversation'],
     apply(ctx) {
       ensureStyle()
       installSelectionSaver()
@@ -6695,6 +6603,35 @@ function createPromptsClient(require) {
       ctx.inject(['sessions'], (scope) => {
         selectionSessions = scope.get('sessions')
       })
+
+      // 官方选区动作面板（message-quotes 引入的 text-interaction 槽 +
+      // interactions 选区准入）上挂「添加评论」：与官方「引用文本」同一个
+      // surface、同一套官方样式（复用官方 .U4oBDW_action 类；老宿主回落
+      // 自带 .dsh-si-quote-action）。点击清选区、打开 Trae 评论卡，保存后
+      // 才插 chip（评论到对话流）。
+      const SelectionCommentAction = (props) => h(PromptsBoundary, null, h(SelectionCommentActionButton, props))
+      ctx.inject(['uiConversation', 'sessions'], (scope) => {
+        try {
+          const ui = scope.get('uiConversation')
+          ctx.effect(() => ui.interactions.register({
+            id: 'dsh-comment',
+            onInteraction(request) {
+              if (request.trigger !== 'selection' || request.readText() === null) return
+              const binding = scope.sessions.binding(request.sessionId)
+              if (binding === undefined) return
+              const session = binding.session.getSnapshot()
+              if (session.removed || (session.subagent !== null && (session.subagent.address.mode !== 'continuable' || session.subagent.parentAvailable !== true))) return
+              request.open()
+            },
+          }), 'dsh-superinput: comment selection interaction')
+        } catch (error) {
+          report(`comment interaction register failed: ${error?.message ?? error}`)
+        }
+      })
+      ctx.slots.inject('conversation.chat.text-interaction', () => ctx.slots.register({
+        name: 'conversation.chat.text-interaction',
+        key: 'dsh-comment',
+      }, SelectionCommentAction))
 
       // 消息正文里的同款 chip：user-text 规则 + 节点渲染槽位。
       ctx.inject(['uiConversation'], (scope) => {

@@ -2,6 +2,29 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.0] - 2026-11-07
+
+### 官方「引用文本」落地后的对齐：评论入口挂上官方选区动作面板
+
+dsh 0.2.2-rc.1 官方新增 message-quotes 插件（选区 →「引用文本」→
+`inputActions.insertQuote` → Markdown blockquote，消息渲染 QuotePreview）。
+本版把套件的评论入口**移植到官方机制之上**：
+
+- **旧 DOM 浮动菜单整体退役**（复制/评论到对话/添加到对话/存为模板）——
+  官方面板 + 套件按钮取而代之，划选不再出现双浮层。
+- **「添加评论」按钮挂进官方选区动作面板**：注册自有 interaction
+  （`dsh-comment`，准入逻辑照抄官方 quote）+ `conversation.chat.text-interaction`
+  槽（key `dsh-comment`）；按钮复用官方 `.U4oBDW_action` 类（浮动 pill：
+  floating-fill 底/999px 圆角/`--dsw-font-xs-13`/panel 阴影），老宿主回落
+  自带 `.dsh-si-quote-action` 同款声明。点击清选区 → 打开 Trae 评论卡
+  （0.10.1 规格）→ 保存后插 chip（评论到对话流）。
+- prompts 客户端 inject 增至 `['slots', 'sessions', 'uiConversation']`
+  （interactions 注册需要；要求 dsh ≥ 0.2.2-rc.1）。
+- 划选引用 chip（Trae 式评论流）与官方 blockquote 引用并存：两条路各自
+  渲染（chip 走 user-text 规则，官方 blockquote 走 QuotePreview）。
+- 拖拽引用、去重、8 条上限保留；「复制」「存为模板」菜单项随旧菜单移除
+  （复制走 Ctrl+C；存模板走 Prompt 面板）。
+
 ## [0.10.1] - 2026-11-07
 
 ### 评论卡与引用 chip 按 Trae 源码重着色（solo-lite 7920 包逆向）
