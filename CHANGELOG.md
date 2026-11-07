@@ -2,6 +2,21 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.1] - 2026-11-07
+
+### 修复：「添加评论」按钮不出现（interaction 分发首个即胜）
+
+- **根因**：宿主 `uiConversation.interactions.dispatch` 按**注册顺序遍历、
+  首个 open 即返回**——官方 `quote` 在 base bundle 先注册，自有
+  `dsh-comment` interaction 永远轮不到分发，按钮自然不渲染（0.11.0 的
+  同面板方案在宿主语义下行不通）。
+- **改法**：撤销自有 interaction/槽位注册；「添加评论」改为**独立 pill，
+  样式复用官方 `.U4oBDW_action` 类**（与官方「引用文本」视觉完全一致）。
+  选区存在期间每帧扫描：官方 pill 就位则吸附其右侧 8px 拼成一条工具带，
+  2 秒内未出现则回落选区上方；桌面壳 fixed 包含块偏移照评论卡同款校正；
+  mousedown preventDefault 保住选区（官方同款），点击清选区后开 Trae
+  评论卡。
+
 ## [0.11.0] - 2026-11-07
 
 ### 官方「引用文本」落地后的对齐：评论入口挂上官方选区动作面板

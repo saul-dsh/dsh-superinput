@@ -154,6 +154,7 @@ try {
   assert(clientSource.includes('dsh-si-comment-editor'), 'client: anchored comment editor present (Trae previewCommentCard)')
   assert(clientSource.includes('__dshSuperinputDropContext'), 'client: drag-drop insert entry present (Trae dragDropMention)')
   assert(clientSource.includes('application/x-dsh-selection'), 'client: drag payload marker present')
+  assert(clientSource.includes('U4oBDW_action'), 'client: comment pill reuses the official action style')
 
   console.log('SMOKE ALL PASS')
 } catch (error) {

@@ -5599,6 +5599,89 @@ function createPromptsClient(require) {
     // 评论编辑器在 React 侧保存后要提示，复用这个文档级 toast。
     window.__dshSuperinputToast = toast
 
+    /* 「添加评论」pill：官方 message-quotes 的选区分发是首个即胜（quote 先
+     * 注册永远赢），interaction 挂不进官方面板——改为独立 pill，样式复用官方
+     * .U4oBDW_action 类，出现时贴到官方「引用文本」pill 右侧拼成一条工具带；
+     * 官方 pill 不在（老宿主）就退回选区上方居中。 */
+    const pill = document.createElement('button')
+    pill.type = 'button'
+    pill.className = 'U4oBDW_action dsh-si-quote-action'
+    pill.textContent = '添加评论'
+    pill.style.cssText += 'position:fixed;z-index:1290;display:none;white-space:nowrap;'
+    let pillSweep = 0
+    const placePill = (rect) => {
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      // 官方 pill 定位优先（同锚点即成一条工具带）；找不到就落在选区末端上方。
+      const official = document.querySelector('[class*="U4oBDW_action"]')
+      let left = null
+      let top = null
+      if (official?.isConnected && official.getClientRects().length > 0) {
+        const or = official.getBoundingClientRect()
+        left = or.right + 8
+        top = or.top
+      } else {
+        left = Math.max(8, Math.min(rect.right - 20, vw - 120))
+        top = rect.top - 40
+      }
+      // 桌面壳 fixed 包含块可能偏移（0×0 包含块问题）：放好后按实测偏差校正。
+      pill.style.visibility = 'hidden'
+      pill.style.left = `${Math.max(8, Math.min(left, vw - 8))}px`
+      pill.style.top = `${Math.max(8, Math.min(top, vh - 8))}px`
+      const actual = pill.getBoundingClientRect()
+      const dx = actual.left - parseFloat(pill.style.left)
+      const dy = actual.top - parseFloat(pill.style.top)
+      if (Math.abs(dx) > 1) pill.style.left = `${parseFloat(pill.style.left) - dx}px`
+      if (Math.abs(dy) > 1) pill.style.top = `${parseFloat(pill.style.top) - dy}px`
+      pill.style.visibility = 'visible'
+      pill.style.display = 'block'
+    }
+    const hidePill = () => {
+      if (pillSweep) { cancelAnimationFrame(pillSweep); pillSweep = 0 }
+      pill.style.display = 'none'
+    }
+    const selectionSnapshot = () => {
+      const selection = window.getSelection?.()
+      const text = String(selection ?? '').trim()
+      if (!text || !selection.rangeCount) return null
+      const node = selection.anchorNode
+      const el = node instanceof Element ? node : node?.parentElement
+      if (!el?.closest?.('[data-chat-flow], [data-slot="conversation.chat.flow"]')) return null
+      if (el.closest?.('[contenteditable="true"], textarea, input, [data-dsh-superinput-portal]')) return null
+      const range = selection.getRangeAt(0)
+      const rect = range.getBoundingClientRect()
+      if (!rect || (rect.width === 0 && rect.height === 0)) return null
+      return { text: text.slice(0, CONTEXT_TEXT_MAX), anchorEl: el, rect }
+    }
+    // 官方 pill 由宿主交互服务定位，出现的时机与顺序不可控——选区存在期间
+    // 每帧扫一次：官方 pill 就位则吸附其右侧，两秒后仍没有就用兜底位置。
+    const sweepPill = () => {
+      const snap = selectionSnapshot()
+      if (!snap) { hidePill(); return }
+      placePill(snap.rect)
+      if (document.querySelector('[class*="U4oBDW_action"]')) return
+      if (Date.now() - sweepStartedAt < 2000) pillSweep = requestAnimationFrame(sweepPill)
+    }
+    let sweepStartedAt = 0
+    document.addEventListener('selectionchange', () => {
+      try {
+        if (pillSweep) { cancelAnimationFrame(pillSweep); pillSweep = 0 }
+        const snap = selectionSnapshot()
+        if (!snap) { hidePill(); return }
+        sweepStartedAt = Date.now()
+        pillSweep = requestAnimationFrame(sweepPill)
+      } catch { /* ignore */ }
+    })
+    window.addEventListener('scroll', hidePill, true)
+    pill.addEventListener('mousedown', (event) => event.preventDefault()) // 保住选区（官方同款）
+    pill.addEventListener('click', () => {
+      const snap = selectionSnapshot()
+      if (!snap) { hidePill(); return }
+      hidePill()
+      window.getSelection()?.removeAllRanges()
+      window.__dshSuperinputCommentContext?.(snap.text, snap.anchorEl, snap.rect)
+    })
+
     /* Trae dragDropMention 等价：把对话里划选的文字拖进输入框，落成引用 chip。
      * dragstart 时对选区打自定义 dataTransfer 标记 + stash 文本；dragover 放行
      * composer；drop 拦截宿主的纯文本插入，走 __dshSuperinputDropContext 插 chip。 */
@@ -6011,40 +6094,6 @@ function createPromptsClient(require) {
           h('span', { className: 'dsh-si-dialog-spacer' }),
           h('button', { className: 'dsh-si-dialog-btn ghost', onClick: () => onClose?.() }, '关闭')))
     )
-  }
-
-  /** 官方选区动作面板上的「添加评论」按钮：完全官方样式（复用官方
-   * .U4oBDW_action 类 + 自带回退），点击清选区并打开 Trae 评论卡。 */
-  function SelectionCommentActionButton({ dismiss, readText, clearSelection, useSession }) {
-    const enabled = useSession
-      ? useSession((s) => !s.removed && (s.subagent === null || (s.subagent.address.mode === 'continuable' && s.subagent.parentAvailable === true)))
-      : true
-    React.useEffect(() => {
-      if (!enabled) dismiss?.()
-    }, [enabled, dismiss])
-    if (!enabled) return null
-    return h('button', {
-      type: 'button',
-      className: 'U4oBDW_action dsh-si-quote-action',
-      'aria-label': '添加评论',
-      onPointerDown: (event) => event.preventDefault(),
-      onClick: () => {
-        const selection = window.getSelection?.()
-        const text = String(selection ?? '').trim()
-        let rect = null
-        let anchorEl = null
-        if (selection?.rangeCount) {
-          const range = selection.getRangeAt(0)
-          rect = range.getBoundingClientRect()
-          const node = range.startContainer
-          anchorEl = node instanceof Element ? node : node?.parentElement
-        }
-        if (!text) { dismiss?.(); return }
-        clearSelection?.()
-        dismiss?.()
-        window.__dshSuperinputCommentContext?.(text, anchorEl, rect)
-      },
-    }, '添加评论')
   }
 
   /** 划选评论编辑器：照抄 Trae CommentEditorCard——无标题/无预览/无取消钮，
@@ -6603,35 +6652,6 @@ function createPromptsClient(require) {
       ctx.inject(['sessions'], (scope) => {
         selectionSessions = scope.get('sessions')
       })
-
-      // 官方选区动作面板（message-quotes 引入的 text-interaction 槽 +
-      // interactions 选区准入）上挂「添加评论」：与官方「引用文本」同一个
-      // surface、同一套官方样式（复用官方 .U4oBDW_action 类；老宿主回落
-      // 自带 .dsh-si-quote-action）。点击清选区、打开 Trae 评论卡，保存后
-      // 才插 chip（评论到对话流）。
-      const SelectionCommentAction = (props) => h(PromptsBoundary, null, h(SelectionCommentActionButton, props))
-      ctx.inject(['uiConversation', 'sessions'], (scope) => {
-        try {
-          const ui = scope.get('uiConversation')
-          ctx.effect(() => ui.interactions.register({
-            id: 'dsh-comment',
-            onInteraction(request) {
-              if (request.trigger !== 'selection' || request.readText() === null) return
-              const binding = scope.sessions.binding(request.sessionId)
-              if (binding === undefined) return
-              const session = binding.session.getSnapshot()
-              if (session.removed || (session.subagent !== null && (session.subagent.address.mode !== 'continuable' || session.subagent.parentAvailable !== true))) return
-              request.open()
-            },
-          }), 'dsh-superinput: comment selection interaction')
-        } catch (error) {
-          report(`comment interaction register failed: ${error?.message ?? error}`)
-        }
-      })
-      ctx.slots.inject('conversation.chat.text-interaction', () => ctx.slots.register({
-        name: 'conversation.chat.text-interaction',
-        key: 'dsh-comment',
-      }, SelectionCommentAction))
 
       // 消息正文里的同款 chip：user-text 规则 + 节点渲染槽位。
       ctx.inject(['uiConversation'], (scope) => {
