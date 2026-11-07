@@ -118,16 +118,17 @@ function createPromptsClient(require) {
 .dsh-cp-action:hover { color: var(--dsw-alias-label-primary); }
 .dsh-cp-action.primary { color: #fff; background: #3a83f7; border-color: transparent; }
 .dsh-cp-action.primary:hover { background: #4f8ef9; }
-/* 四选项横条（0.8.x 形态，用户拍板恢复）：深色圆角条 + 背景模糊 */
-.dsh-cp-selmenu { display: flex; flex-direction: row; align-items: center; gap: 2px; padding: 3px; border-radius: var(--dsw-radius-lg, 12px);
-  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.85));
-  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
-  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
-  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.1));
+/* 四选项横条：完全官方样式——令牌与几何照抄官方 QuoteSelection 按钮
+   （.U4oBDW_action：floating-fill 底 / 999px 胶囊 / panel 阴影 / xs-13 字）， */
+.dsh-cp-selmenu { display: flex; flex-direction: row; align-items: center; gap: 2px; padding: 3px; border-radius: 999px;
+  background: var(--dsw-alias-button-floating-fill, rgba(116, 126, 148, .24));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l3, rgba(255, 255, 255, .1));
+  box-shadow: var(--dsw-elevation-panel, 0 0 0 .5px var(--dsw-elevation-stroke-color), 0 2px 6px rgba(0, 0, 0, .12));
 }
-.dsh-cp-selitem { border: none; background: transparent; text-align: left; padding: 5px 10px; font-size: 12px; line-height: 18px;
-  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.92)); border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; white-space: nowrap; }
-.dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
+.dsh-cp-selitem { border: none; background: transparent; text-align: center; padding: 5px 10px; font-size: 13px; line-height: 18px;
+  color: var(--dsw-alias-label-primary); border-radius: 999px; cursor: pointer; white-space: nowrap;
+  font-family: var(--dsw-font-family, inherit); letter-spacing: -.02em; }
+.dsh-cp-selitem:hover, .dsh-cp-selitem:focus-visible { background: var(--dsw-alias-button-floating-hover, rgba(116, 126, 148, .36)); }
 /* 官方浮动「引用文本」pill 由横条里的同名功能取代（同一 insertQuote API），隐藏避免双浮层 */
 [class*="U4oBDW_action"] { display: none !important; }
 .dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);

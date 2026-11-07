@@ -2,6 +2,16 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.4] - 2026-11-07
+
+### 横条样式对齐官方（QuoteSelection 令牌）
+
+- 横条容器与条目按官方 QuoteSelection 按钮的令牌重做：**999px 胶囊圆角**
+  （替代 12px）、`--dsw-alias-button-floating-fill` 底（替代 specific-menu
+  + blur——官方无模糊）、`--dsw-elevation-panel` 阴影（border-l3 描边）、
+  条目 `--dsw-font-xs-13` 13px + 字距 -.02em、hover/focus 用
+  `button-floating-hover`。整条就是一个加宽的官方浮动 pill。
+
 ## [0.11.3] - 2026-11-07
 
 ### 恢复四选项横条（用户拍板），引用文本走官方 API
