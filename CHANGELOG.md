@@ -2,6 +2,22 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.0] - 2026-11-07
+
+### 压缩控制并入套件（compaction 模块，八模块定稿）
+
+- **dsh-compaction-control 并入为 compaction 模块**：上下文占用圆环
+  （`conversation.input.right` 槽位直渲染，模型选择器紧左侧）、压缩参数
+  调节（profile 补丁层）、立即压缩、压缩前自动落档——全部随套件走。
+  **独立插件应从 profile 卸载**（两 profile 已同步卸载），否则圆环双注册。
+- pre-step 瀑布新增第三个监听（compaction 落档）；模块应用顺序在 enhancer
+  之后，落档消息在增强之后追加、不会被二次改写。
+- smoke 升级：ctx.on 桩改为瀑布链（同名事件多监听按注册顺序链式执行，
+  套件合并后 pre-step 有 4 个监听）；断言 `/api/dsh-compaction-control`
+  注册 + 全链注入一次性消费；补 payload.messages 字段（followup pre-step
+  依赖真机宿主字段）。
+- build 作业线：兼容上游尾部的 `export const __internals`（离线自测导出）。
+
 ## [0.9.1] - 2026-11-07
 
 ### 拖拽引用（Trae dragDropMention 等价）——最后一块对齐项

@@ -26,6 +26,9 @@ const MODULES = [
   ['enhancer', 'dsh-prompt-enhancer', 'createEnhancerClient'],
   ['followup', 'dsh-followup', 'createFollowupClient'],
   ['voice', 'dsh-siri-voice', 'createVoiceClient'],
+  // 0.10.0 起并入套件（此前独立插件）；apply 顺序在 enhancer 之后——
+  // pre-step 瀑布里压缩落档消息在增强之后追加，不会被二次改写。
+  ['compaction', 'dsh-compaction-control', 'createCompactionClient'],
 ]
 
 function transformServer(pkg, key) {
@@ -65,6 +68,8 @@ function inlineSource(src) {
     .replace(/^export function apply\(/m, 'function apply(')
     .replace(/^export \{ inject \}\s*$/m, '')
     .replace(/^export default \{[^\n]*\}\s*$/m, '')
+    // compaction-control 尾部的离线自测导出（CI import 用，运行时无用）
+    .replace(/^export const __internals/m, 'const __internals')
   return { imports, body: body.trim() }
 }
 
@@ -151,6 +156,7 @@ const MODULES = [
   ['followup', followupModule],
   ['voice', voiceModule],
   ['prompts', promptsModule],
+  ['compaction', compactionModule],
   ['hub', hubModule],
 ]
 
@@ -165,6 +171,7 @@ export const Config = Schema.object({
   followup: followupModule.Config,
   voice: voiceModule.Config,
   prompts: promptsModule.Config,
+  compaction: compactionModule.Config,
   hub: hubModule.Config,
 })
 
@@ -263,6 +270,7 @@ window.__ModuleLoader__.load({
       ['followup', createFollowupClient],
       ['voice', createVoiceClient],
       ['prompts', createPromptsClient],
+      ['compaction', createCompactionClient],
       ['hub', createHubClient],
     ]
     // 模块异常上报：console 不落盘，失败必须走 prompts /diag 留痕。

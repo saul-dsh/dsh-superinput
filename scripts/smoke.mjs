@@ -38,7 +38,18 @@ const ctx = {
     for (const d of deps) if (!(d in scope)) scope[d] = services[d] ?? {}
     cb(scope)
   },
-  on(name, handler) { eventHandlers[name] = handler; return () => { delete eventHandlers[name] } },
+  // cordis 瀑布语义：同名事件多个监听按注册顺序链式执行（后者拿到前者
+  // 的 next 结果）。套件合并后 pre-step 有多个监听（prompts /context 注入、
+  // compaction 落档、enhancer），单槽覆盖会让测试调到错误的那个。
+  on(name, handler) {
+    (eventHandlers[name] ??= []).push(handler)
+    return () => {
+      const list = eventHandlers[name]
+      if (!Array.isArray(list)) return
+      const index = list.indexOf(handler)
+      if (index >= 0) list.splice(index, 1)
+    }
+  },
 }
 
 const assert = (cond, label) => { if (!cond) throw new Error(label); console.log('ok:', label) }
@@ -59,10 +70,10 @@ let failed = false
 try {
   const config = {}
   // enhancer 给显式 provider/model，让 configRoute 命中、不依赖 agentDefaultModel
-  for (const key of ['cost', 'picker', 'enhancer', 'followup', 'voice', 'prompts', 'hub']) config[key] = {}
+  for (const key of ['cost', 'picker', 'enhancer', 'followup', 'voice', 'prompts', 'compaction', 'hub']) config[key] = {}
   config.enhancer = { provider: 'stub', model: 'stub-model' }
   mod.apply(ctx, config)
-  for (const path of ['/api/dsh-cost', '/api/dsh-superinput/prompts', '/api/dsh-superinput/hub', '/api/prompt-enhancer']) {
+  for (const path of ['/api/dsh-cost', '/api/dsh-superinput/prompts', '/api/dsh-superinput/hub', '/api/prompt-enhancer', '/api/dsh-compaction-control']) {
     assert(webPaths.includes(path), `module apply: ${path} registered`)
   }
   assert(!!promptsHandler, 'module apply: prompts handler captured')
@@ -111,14 +122,25 @@ try {
   // 划选上下文：/context 暂存 → agent/pre-step 一次性注入
   const ctxStore = await prompts('POST', '/context', { sessionId: 'smoke-session', items: [{ text: '选中的对话内容', comment: '帮我解释这一段' }] })
   assert(ctxStore.status === 200 && ctxStore.out?.count === 1, 'context: stored')
-  const preStep = eventHandlers['agent/pre-step']
-  assert(typeof preStep === 'function', 'context: pre-step handler registered')
-  const preNext = async () => ({ kind: 'enter', messages: [] })
-  const preOnce = await preStep({ agent: { session: 'smoke-session' }, step: 1, signal: { aborted: false } }, preNext)
-  const injected = preOnce.messages?.[0]?.content?.[0]?.text ?? ''
-  assert(preOnce.messages?.length === 1 && injected.includes('选中的对话内容') && injected.includes('帮我解释这一段'), 'context: text + comment injected')
-  const preTwice = await preStep({ agent: { session: 'smoke-session' }, step: 1, signal: { aborted: false } }, preNext)
-  assert((preTwice.messages ?? []).length === 0, 'context: one-shot consumed')
+  // 套件合并后 pre-step 是瀑布链（prompts /context + compaction 落档 +
+  // enhancer……），按注册顺序链式调用，断言走到全链后的结果。
+  const preHandlers = eventHandlers['agent/pre-step'] ?? []
+  assert(Array.isArray(preHandlers) && preHandlers.length >= 2, `context: pre-step waterfall registered (${preHandlers.length} listeners)`)
+  const runPreStep = async (payload) => {
+    const run = async (index) => {
+      if (index >= preHandlers.length) return { kind: 'enter', messages: [] }
+      return preHandlers[index](payload, () => run(index + 1))
+    }
+    return run(0)
+  }
+  // followup 的 pre-step 读 payload.messages（真机宿主字段）——冒烟桩也要给
+  const prePayload = () => ({ agent: { session: 'smoke-session' }, messages: [], step: 1, signal: { aborted: false } })
+  const preOnce = await runPreStep(prePayload())
+  const injected = preOnce.messages?.map((m) => m?.content?.[0]?.text ?? '').join('\n') ?? ''
+  assert(injected.includes('选中的对话内容') && injected.includes('帮我解释这一段'), 'context: text + comment injected')
+  const preTwice = await runPreStep(prePayload())
+  const twiceText = preTwice.messages?.map((m) => m?.content?.[0]?.text ?? '').join('\n') ?? ''
+  assert(!twiceText.includes('选中的对话内容'), 'context: one-shot consumed')
 
   // 客户端草稿桥：划选「添加到对话」/模板插入/斜杠命令都依赖它；
   // 0.4.0 移除 snippets 时整块丢失过一次，静态断言防再犯。
@@ -137,6 +159,7 @@ try {
 } catch (error) {
   failed = true
   console.log('SMOKE FAIL:', error?.message ?? error)
+  if (error?.stack) console.log(error.stack.split('\n').slice(1, 6).join('\n'))
 } finally {
   try {
     if (backup) writeFileSync(STORE, backup)
