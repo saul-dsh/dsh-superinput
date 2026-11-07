@@ -1,23 +1,25 @@
 #!/usr/bin/env node
 /**
- * dsh-superinput 套件生成器：从五个独立插件机械搬迁模块代码。
+ * dsh-superinput 套件生成器：从 upstream/ 内的六个模块源机械搬迁模块代码。
  *
  * 服务端：**单文件内联**——宿主 interception loader 对 link 包内部的相对
- * 导入没有先例（五个旧插件都是自包含单文件；套件首版因相对导入静默不被
+ * 导入没有先例（六个旧插件都是自包含单文件；套件首版因相对导入静默不被
  * import）。六个模块各包进 IIFE（作用域隔离顶层 const），import 提升到
  * 顶部去重，modules/*.js 仅作生成中间产物保留可读源。
  * 客户端：client.js 单文件闭包（宿主不拆模块），各包 __ModuleLoader__
  * 头尾改写为 `function createX(require)` 工厂按序拼入，套件 factory 里
  * 逐模块 try/catch（一个模块失败不拖垮其他）。
  *
- * 上游插件更新后重跑本脚本即可再生成；重复执行幂等。
+ * 六个模块源原本是独立 git 仓（2026-11-07 收编进本仓 upstream/，GitHub
+ * 上游仓已归档）；改上游源码直接改 upstream/<包名>/，重跑本脚本再生成。
+ * 重复执行幂等。
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url))) // packages/dsh-superinput
-const pkgRoot = join(root, '..')
+const pkgRoot = join(root, 'upstream')
 
 /** key → [包目录, 客户端工厂名] */
 const MODULES = [

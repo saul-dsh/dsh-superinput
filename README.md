@@ -39,7 +39,11 @@ dsh plugin --profile desktop add <本目录绝对路径>
 
 ## 上游更新
 
-改了 `packages/dsh-*` 的源码后，在套件目录重跑 `node scripts/build-suite.mjs` 再生成 `modules/` 与 `client.js`（幂等）。
+六个模块源（cost/picker/enhancer/followup/voice/compaction）就住在本仓
+`upstream/<包名>/` 里（2026-11-07 从六个独立仓收编为单仓，GitHub 上的上游仓
+saul-dsh/dsh-cost 等已归档存档）。改了 `upstream/<包名>/` 的源码后，在套件
+目录重跑 `node scripts/build-suite.mjs` 再生成 `modules/` 与 `client.js`
+（幂等），随后完整重启 dsh 生效。
 
 ## License
 

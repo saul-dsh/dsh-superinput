@@ -1,0 +1,53 @@
+{
+  "name": "dsh-power-picker",
+  "version": "0.12.5",
+  "description": "Codex-style model & reasoning-effort picker for the DeepSeek Harness (dsh) composer: shadows the built-in model seat with a gradient power slider and provider-grouped model list, wired to the official session model directory.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "model-picker",
+    "reasoning-effort",
+    "codex-style",
+    "cordis"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saul-dsh/dsh-power-picker.git"
+  },
+  "homepage": "https://github.com/saul-dsh/dsh-power-picker#readme",
+  "bugs": {
+    "url": "https://github.com/saul-dsh/dsh-power-picker/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

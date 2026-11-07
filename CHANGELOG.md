@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.12.1] - 2026-11-07
+
+### 单仓收编：六个上游模块源并入本仓 `upstream/`
+
+- `packages/` 下的六个独立源码仓（dsh-cost / dsh-power-picker /
+  dsh-prompt-enhancer / dsh-followup / dsh-siri-voice / dsh-compaction-control）
+  全部搬入本仓 `upstream/<包名>/`（剥离各自 .git，历史保留在 GitHub 归档仓）；
+  `build-suite.mjs` 改从仓内 `upstream/` 读源。**运行时零变化**：重建产物与
+  0.12.0 字节级一致（git 零 diff），纯仓库结构收编。
+- 收编前审计：五仓干净推平；dsh-compaction-control 补提交了漏掉的
+  0.3.1「圆环常驻占位」改动（686335f）后再搬迁。
+
 ## [0.12.0] - 2026-11-07
 
 ### cost 模块 0.10.0：Coding Plan 配额 + 热力图 + 双语
