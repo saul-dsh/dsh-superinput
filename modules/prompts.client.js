@@ -588,6 +588,7 @@ function createPromptsClient(require) {
     pill.className = 'U4oBDW_action dsh-si-quote-action'
     pill.textContent = '添加评论'
     pill.style.cssText += 'position:fixed;z-index:1290;display:none;white-space:nowrap;'
+    document.body.appendChild(pill) // 挂进 DOM——游离节点样式再对也不会显示（0.11.1 真机教训）
     let pillSweep = 0
     const placePill = (rect) => {
       const vw = window.innerWidth
