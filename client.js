@@ -5160,40 +5160,37 @@ function createPromptsClient(require) {
 [contenteditable] span[title^="${CHIP_MARK}"] {
   box-sizing: border-box;
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 4px;
-  height: 18px;
-  max-width: 240px;
-  padding: 1px 6px 1px 4px;
+  max-width: min(80%, 300px);
+  padding: 0;
   border: none;
-  border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, .18));
-  color: var(--dsw-alias-label-primary);
+  border-radius: 0;
+  background: none;
+  color: var(--dsw-alias-state-business-primary, #4176e6);
   font-family: var(--dsw-font-family, inherit);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -.02em;
-  line-height: 16px;
-  vertical-align: middle;
+  font-size: 14px;
+  line-height: 20px;
+  vertical-align: baseline;
   cursor: pointer;
   overflow: hidden;
   transition: background .14s ease;
 }
 [contenteditable] span[title^="${CHIP_MARK}"]:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(116, 126, 148, .28));
+  color: var(--dsw-alias-state-business-primary, #4176e6);
 }
-/* 隐藏宿主默认前缀（@ / file 图标），换 Trae 同款气泡图标（mask 跟随文字色） */
+/* 隐藏宿主默认前缀（@ / file 图标），换官方同款 ❝ 引用标记（hover 变 ×） */
 [contenteditable] span[title^="${CHIP_MARK}"] > span:first-child { display: none; }
 [contenteditable] span[title^="${CHIP_MARK}"]::before {
   content: '';
   flex: 0 0 14px;
   width: 14px;
   height: 14px;
+  align-self: center;
   margin-right: 2px;
   background: currentColor;
-  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M14.3332 8.0013C14.3332 11.3346 11.8702 13.3346 7.99984 13.3346C6.8331 13.3346 5.60267 13.2116 4.56857 12.668C4.56857 12.668 3.07391 13.7639 1.6665 13.0972C2.70858 11.7228 2.44754 10.7933 2.38257 10.6161C2.37481 10.595 2.36622 10.576 2.35754 10.5552C2.26265 10.3277 1.6665 8.86419 1.6665 8.0013C1.6665 4.66797 4.12947 2.66797 7.99984 2.66797C11.8702 2.66797 14.3332 4.66797 14.3332 8.0013Z' fill='black'/><circle cx='5.6' cy='8' r='0.9' fill='white'/><circle cx='8' cy='8' r='0.9' fill='white'/><circle cx='10.4' cy='8' r='0.9' fill='white'/></svg>") center / 14px 14px no-repeat;
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M14.3332 8.0013C14.3332 11.3346 11.8702 13.3346 7.99984 13.3346C6.8331 13.3346 5.60267 13.2116 4.56857 12.668C4.56857 12.668 3.07391 13.7639 1.6665 13.0972C2.70858 11.7228 2.44754 10.7933 2.38257 10.6161C2.37481 10.595 2.36622 10.576 2.35754 10.5552C2.26265 10.3277 1.6665 8.86419 1.6665 8.0013C1.6665 4.66797 4.12947 2.66797 7.99984 2.66797C11.8702 2.66797 14.3332 4.66797 14.3332 8.0013Z' fill='black'/><circle cx='5.6' cy='8' r='0.9' fill='white'/><circle cx='8' cy='8' r='0.9' fill='white'/><circle cx='10.4' cy='8' r='0.9' fill='white'/></svg>") center / 14px 14px no-repeat;
-  opacity: .85;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
 }
 [contenteditable] span[title^="${CHIP_MARK}"]:hover::before {
   content: '×';
@@ -5206,13 +5203,12 @@ function createPromptsClient(require) {
   text-align: center;
 }
 /* 消息正文里的同款 chip（user-text 规则节点；不在 contenteditable 里） */
-.dsh-si-msgchip { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 18px; max-width: 240px;
-  padding: 1px 6px 1px 4px; border: none; border-radius: 4px; background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, .18));
-  color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family, inherit); font-size: 13px; font-weight: 500; letter-spacing: -.02em; line-height: 16px;
-  vertical-align: middle; overflow: hidden; user-select: none; }
+.dsh-si-msgchip { box-sizing: border-box; display: inline-flex; align-items: baseline; gap: 4px; max-width: min(80%, 300px);
+  padding: 0; border: none; border-radius: 0; background: none;
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+  font-family: var(--dsw-font-family, inherit); font-size: 14px; line-height: 20px;
+  vertical-align: baseline; overflow: hidden; user-select: none; }
 .dsh-si-msgchip.interactive { cursor: pointer; }
-.dsh-si-msgchip.interactive:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(116, 126, 148, .28)); }
 .dsh-si-msgchip-icon { flex: 0 0 14px; width: 14px; height: 14px; margin-right: 2px; opacity: .8; background: currentColor;
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat; }
@@ -5270,6 +5266,9 @@ function createPromptsClient(require) {
   border-radius: var(--dsw-radius-sm, 8px); color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family, inherit); background: var(--dsw-specific-menu, #202124);
   border: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, .1));
+  /* specific-menu 是半透明底：必须配官方毛玻璃，否则透出下层文字（官方弹卡成对规则） */
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
   box-shadow: 0 2px 6px rgba(0, 0, 0, .19), 0 .5px rgba(255, 255, 255, .06), inset 0 .5px rgba(255, 255, 255, .06);
   overflow: hidden;
   transition: width .25s cubic-bezier(.4, 0, .2, 1), height .25s cubic-bezier(.4, 0, .2, 1);

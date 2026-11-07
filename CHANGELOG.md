@@ -2,6 +2,19 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.5] - 2026-11-07
+
+### chip 对齐官方编辑器引用节点 + 评论卡毛玻璃
+
+- **chip 照官方编辑器引用节点（`_quote_at713`）重做**：无底/无框/无圆角、
+  文字 `state-business-primary` 蓝、14px/20px、max-width min(80%,300px)、
+  baseline 对齐、❝ 引用标记 hover 变 ×（官方 closeMark 同款交互）——与
+  官方「引用文本」插进输入框的引用节点**在编辑器里视觉完全一致**（此前
+  Trae 式灰底胶囊和官方引用节点同框反差明显）。消息内 chip 同步。
+- **评论卡背景加官方毛玻璃**：`--dsw-specific-menu` 本身是半透明底，必须
+  配 `--dsw-menu-backdrop-filter`（官方弹卡成对规则）——修复「评论框背景
+  太透明」。
+
 ## [0.11.4] - 2026-11-07
 
 ### 横条样式对齐官方（QuoteSelection 令牌）
