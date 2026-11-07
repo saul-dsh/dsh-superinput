@@ -138,27 +138,27 @@ function createPromptsClient(require) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: 18px;
   max-width: 240px;
-  padding: 1px 6px;
-  border: .5px solid color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 18%, transparent);
-  border-radius: var(--dsw-radius-sm, 8px);
-  background: var(--dsw-alias-state-business-tertiary, rgba(116, 126, 148, .18));
-  color: var(--dsw-alias-state-business-primary, #4176e6);
+  padding: 1px 6px 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, .18));
+  color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family, inherit);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 18px;
-  letter-spacing: normal;
+  letter-spacing: -.02em;
+  line-height: 16px;
   vertical-align: middle;
   cursor: pointer;
   overflow: hidden;
   transition: background .14s ease;
 }
 [contenteditable] span[title^="${CHIP_MARK}"]:hover {
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 22%, transparent);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(116, 126, 148, .28));
 }
-/* 隐藏宿主默认前缀（@ / file 图标），换 dsh 风格引用图标（mask 跟随文字色） */
+/* 隐藏宿主默认前缀（@ / file 图标），换 Trae 同款气泡图标（mask 跟随文字色） */
 [contenteditable] span[title^="${CHIP_MARK}"] > span:first-child { display: none; }
 [contenteditable] span[title^="${CHIP_MARK}"]::before {
   content: '';
@@ -167,9 +167,9 @@ function createPromptsClient(require) {
   height: 14px;
   margin-right: 2px;
   background: currentColor;
-  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
-  opacity: .8;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M14.3332 8.0013C14.3332 11.3346 11.8702 13.3346 7.99984 13.3346C6.8331 13.3346 5.60267 13.2116 4.56857 12.668C4.56857 12.668 3.07391 13.7639 1.6665 13.0972C2.70858 11.7228 2.44754 10.7933 2.38257 10.6161C2.37481 10.595 2.36622 10.576 2.35754 10.5552C2.26265 10.3277 1.6665 8.86419 1.6665 8.0013C1.6665 4.66797 4.12947 2.66797 7.99984 2.66797C11.8702 2.66797 14.3332 4.66797 14.3332 8.0013Z' fill='black'/><circle cx='5.6' cy='8' r='0.9' fill='white'/><circle cx='8' cy='8' r='0.9' fill='white'/><circle cx='10.4' cy='8' r='0.9' fill='white'/></svg>") center / 14px 14px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M14.3332 8.0013C14.3332 11.3346 11.8702 13.3346 7.99984 13.3346C6.8331 13.3346 5.60267 13.2116 4.56857 12.668C4.56857 12.668 3.07391 13.7639 1.6665 13.0972C2.70858 11.7228 2.44754 10.7933 2.38257 10.6161C2.37481 10.595 2.36622 10.576 2.35754 10.5552C2.26265 10.3277 1.6665 8.86419 1.6665 8.0013C1.6665 4.66797 4.12947 2.66797 7.99984 2.66797C11.8702 2.66797 14.3332 4.66797 14.3332 8.0013Z' fill='black'/><circle cx='5.6' cy='8' r='0.9' fill='white'/><circle cx='8' cy='8' r='0.9' fill='white'/><circle cx='10.4' cy='8' r='0.9' fill='white'/></svg>") center / 14px 14px no-repeat;
+  opacity: .85;
 }
 [contenteditable] span[title^="${CHIP_MARK}"]:hover::before {
   content: '×';
@@ -182,14 +182,13 @@ function createPromptsClient(require) {
   text-align: center;
 }
 /* 消息正文里的同款 chip（user-text 规则节点；不在 contenteditable 里） */
-.dsh-si-msgchip { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 22px; max-width: 240px;
-  padding: 1px 6px; margin: 0 1px; border: .5px solid color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 18%, transparent);
-  border-radius: var(--dsw-radius-sm, 8px); background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, .18));
-  color: var(--dsw-alias-state-business-primary, #4176e6);
-  font-family: var(--dsw-font-family, inherit); font-size: 12px; font-weight: 500; line-height: 18px;
+.dsh-si-msgchip { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 18px; max-width: 240px;
+  padding: 1px 6px 1px 4px; border: none; border-radius: 4px; background: var(--dsw-alias-bg-layer-1, rgba(116, 126, 148, .18));
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family, inherit); font-size: 13px; font-weight: 500; letter-spacing: -.02em; line-height: 16px;
   vertical-align: middle; overflow: hidden; user-select: none; }
 .dsh-si-msgchip.interactive { cursor: pointer; }
-.dsh-si-msgchip.interactive:hover { background: var(--dsw-alias-state-business-tertiary, rgba(116, 126, 148, .18)); }
+.dsh-si-msgchip.interactive:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(116, 126, 148, .28)); }
 .dsh-si-msgchip-icon { flex: 0 0 14px; width: 14px; height: 14px; margin-right: 2px; opacity: .8; background: currentColor;
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat;
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M6.6 3.2C4.5 4.3 3 6.3 3 8.6c0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4L6.6 3.2Zm7 0c-2.1 1.1-3.6 3.1-3.6 5.4 0 2.3 1.3 3.7 3.2 3.7 1.6 0 2.7-1 2.7-2.5 0-1.4-.9-2.3-2.2-2.3-.4 0-.7 0-1 .2.3-1 .9-1.8 1.7-2.4l-.8-1.9Z' fill='black'/></svg>") center / 14px 14px no-repeat; }
@@ -237,21 +236,31 @@ function createPromptsClient(require) {
 .dsh-si-dialog-btn.primary:hover { background: var(--dsw-alias-button-primary-hover, #4f8ef9); }
 .dsh-si-dialog-btn.danger { background: transparent; border-color: transparent; color: var(--dsw-alias-state-error-primary, #f87171); }
 .dsh-si-dialog-btn.danger:hover { background: var(--dsw-alias-interactive-bg-hover-danger, rgba(248, 113, 113, .12)); }
-/* 划选评论编辑器：Trae previewCommentCard 同构——锚在选区旁的小卡片，不遮罩 */
-.dsh-si-comment-editor { position: fixed; z-index: 1300; display: flex; flex-direction: column; gap: 8px; padding: 10px;
-  box-sizing: border-box; border-radius: var(--dsw-radius-md, 12px); color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family, inherit); background: var(--dsw-alias-bg-layer-1, #fff);
-  border: .5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .1));
-  --dsw-elevation-stroke-color: var(--dsw-alias-border-l4, rgba(0, 0, 0, .16));
-  box-shadow: var(--dsw-elevation-prominent, 0 0 0 .5px var(--dsw-elevation-stroke-color), 0 8px 28px rgba(0, 0, 0, .2));
+/* 划选评论编辑器：照抄 Trae CommentEditorCard（solo-lite 7920 包源码）——
+   previewCommentCardContainer（菜单底/1px 中性描边/radius 8/双层阴影）内嵌
+   commentEditorCard（320px/padding 8/gap 4 列布局）；无标题无预览无取消钮，
+   单行 = 透明自增 textarea（13px/20px，max-height 140）+ ✓ 主按钮；Enter 提交、
+   Shift+Enter 换行、Esc/点外取消。 */
+.dsh-si-comment-editor { position: fixed; z-index: 1300; box-sizing: border-box; width: 320px; padding: 8px;
+  display: flex; flex-direction: column; gap: 4px;
+  border-radius: var(--dsw-radius-sm, 8px); color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family, inherit); background: var(--dsw-specific-menu, #202124);
+  border: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, .1));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .19), 0 .5px rgba(255, 255, 255, .06), inset 0 .5px rgba(255, 255, 255, .06);
+  overflow: hidden;
+  transition: width .25s cubic-bezier(.4, 0, .2, 1), height .25s cubic-bezier(.4, 0, .2, 1);
   visibility: hidden; }
-.dsh-si-comment-head { font-size: 12px; font-weight: 500; line-height: 18px; color: var(--dsw-alias-label-secondary); }
-.dsh-si-comment-quote { box-sizing: border-box; padding: 4px 6px; border-radius: var(--dsw-radius-xs, 4px);
-  background: var(--dsw-alias-bg-module-platform, rgba(0, 0, 0, .04));
-  font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-si-comment-editor .dsh-si-dialog-comment { min-height: 80px; max-height: 160px; font-size: 13px; line-height: 20px; }
-.dsh-si-comment-foot { display: flex; align-items: center; gap: 8px; }
+.dsh-si-comment-row { display: flex; align-items: center; gap: 8px; }
+.dsh-si-comment-input { flex: 1; min-width: 0; box-sizing: border-box; background: none; border: none; outline: none; resize: none;
+  color: var(--dsw-alias-label-primary); font-family: var(--dsw-font-family, inherit);
+  font-size: 13px; font-weight: 400; line-height: 20px; max-height: 140px;
+  padding: 0 8px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--dsw-alias-border-l2, rgba(255, 255, 255, .16)) transparent; }
+.dsh-si-comment-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+.dsh-si-comment-submit { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 6px; cursor: pointer;
+  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, .12)); color: var(--dsw-alias-label-primary); }
+.dsh-si-comment-submit:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, .2)); }
+.dsh-si-comment-submit:disabled { opacity: .5; cursor: default; }
 /* 点击标签跳源时对源元素的闪烁高亮。 */
 .dsh-cp-flash { outline: 2px solid var(--dsw-alias-state-business-primary, #3a83f7) !important; outline-offset: 1px; border-radius: 3px; transition: outline-color .3s ease; }
 `
@@ -1110,13 +1119,23 @@ function createPromptsClient(require) {
     )
   }
 
-  /** 划选评论编辑器：Trae previewCommentCard 同构——锚在选区旁的小卡片，
-   * 不遮罩、点外关闭；保存后才把「选段 + 评论」插成输入框 chip。 */
+  /** 划选评论编辑器：照抄 Trae CommentEditorCard——无标题/无预览/无取消钮，
+   * 单行 = 透明自增 textarea + ✓ 按钮；Enter 提交、Shift+Enter 换行、
+   * Esc/点外取消；IME 组合期不提交。锚在选区旁，不遮罩。 */
   function SelectionCommentEditor({ draft, onSave, onCancel }) {
     const [value, setValue] = React.useState(draft.comment ?? '')
     const cardRef = React.useRef(null)
+    const inputRef = React.useRef(null)
     const valueRef = React.useRef(value)
     React.useEffect(() => { valueRef.current = value }, [value])
+
+    // textarea 自增高（Trae 同款：height auto → scrollHeight，上限 140）
+    React.useEffect(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+    }, [value])
 
     React.useEffect(() => {
       const card = cardRef.current
@@ -1124,9 +1143,9 @@ function createPromptsClient(require) {
       const vw = window.innerWidth
       const vh = window.innerHeight
       const margin = 8
-      const width = Math.min(340, vw - margin * 2)
+      const width = Math.min(320, vw - margin * 2)
       card.style.width = `${width}px`
-      const height = card.getBoundingClientRect().height || 210
+      const height = card.getBoundingClientRect().height || 44
       const rect = draft.rect ?? {}
       let left = Math.min(Math.max(margin, (rect.left ?? 16) + 20), Math.max(margin, vw - width - margin))
       let top = (rect.bottom ?? 80) + 8
@@ -1157,32 +1176,49 @@ function createPromptsClient(require) {
       return () => document.removeEventListener('mousedown', onDown, true)
     }, [onCancel])
 
+    const submit = () => {
+      if (!value.trim()) return
+      onSave?.(value)
+    }
+
     return createPortal(h('div', {
       ref: cardRef,
       className: 'dsh-si-comment-editor',
       onMouseDown: (event) => event.stopPropagation(),
       onClick: (event) => event.stopPropagation(),
     },
-      h('div', { className: 'dsh-si-comment-head' }, '评论到对话'),
-      h('div', { className: 'dsh-si-comment-quote' }, previewOf(draft.text, 100)),
-      h('textarea', {
-        className: 'dsh-si-dialog-comment',
-        value,
-        placeholder: '输入你的评论...',
-        onInput: (event) => setValue(event.target.value),
-        onKeyDown: (event) => {
-          event.stopPropagation()
-          if (event.key === 'Escape') { event.preventDefault(); onCancel?.() }
-          else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault()
-            onSave?.(valueRef.current)
-          }
+      h('div', { className: 'dsh-si-comment-row' },
+        h('textarea', {
+          ref: inputRef,
+          className: 'dsh-si-comment-input',
+          rows: 1,
+          value,
+          placeholder: '输入你的评论...',
+          'aria-label': '输入你的评论...',
+          onInput: (event) => setValue(event.target.value),
+          onKeyDown: (event) => {
+            if (event.nativeEvent?.isComposing || event.nativeEvent?.keyCode === 229) return
+            event.stopPropagation()
+            if (event.key === 'Escape') { event.preventDefault(); onCancel?.() }
+            else if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+              event.preventDefault()
+              submit()
+            }
+          },
+        }),
+        h('button', {
+          className: 'dsh-si-comment-submit',
+          title: draft.comment ? '保存' : '评论到对话',
+          'aria-label': draft.comment ? '保存' : '评论到对话',
+          disabled: !value.trim(),
+          onClick: submit,
         },
-      }),
-      h('div', { className: 'dsh-si-comment-foot' },
-        h('button', { className: 'dsh-si-dialog-btn ghost', onClick: onCancel }, '取消'),
-        h('span', { className: 'dsh-si-dialog-spacer' }),
-        h('button', { className: 'dsh-si-dialog-btn primary', onClick: () => onSave?.(value) }, '保存'))
+          h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', 'aria-hidden': true },
+            h('path', {
+              d: 'M13.5 4.5L6.5 11.5L2.5 7.5',
+              fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8',
+              'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+            }))))
     ), document.body)
   }
 

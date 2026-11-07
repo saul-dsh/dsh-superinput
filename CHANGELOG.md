@@ -2,6 +2,21 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.1] - 2026-11-07
+
+### 评论卡与引用 chip 按 Trae 源码重着色（solo-lite 7920 包逆向）
+
+- **评论卡照抄 CommentEditorCard 真实规格**：去掉标题「评论到对话」、选段
+  预览、取消/保存按钮排——Trae 的卡只有**单行 = 透明无边框自增 textarea
+  （13px/20px，max-height 140）+ ✓ 主按钮（24px，空文本禁用）**；容器
+  320px / padding 8 / 菜单底 / 1px 中性描边 / radius 8 / 双层阴影 /
+  宽高 .25s 过渡；Enter 提交（IME 组合期保护）、Shift+Enter 换行、
+  Esc/点外取消（取消按钮不存在——Trae 同款）。
+- **chip 照 query-mention-symbol 规格**：高 22→18px、去描边、radius 8→4、
+  business 蓝字 → 默认文字色、13px/500/字距 -.02em、padding 1px 6px 1px 4px；
+  引号图标 → Trae 同款**气泡图标**（带三点，消息内 chip 同步）。
+- 上一版 0.10.0 的 compaction 并入内容不变。
+
 ## [0.10.0] - 2026-11-07
 
 ### 压缩控制并入套件（compaction 模块，八模块定稿）

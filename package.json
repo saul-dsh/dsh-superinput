@@ -1,6 +1,6 @@
 {
   "name": "dsh-superinput",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Super input box suite for the DeepSeek Harness (dsh): model & effort picker, prompt enhancement, follow-up suggestions, full cost engine (billing, backfill, price sync, forecast), voice input, prompt template manager, inline selection reference chips with comments and a settings hub — one plugin, seven input-area modules with per-module failure isolation.",
   "type": "module",
   "main": "index.js",
