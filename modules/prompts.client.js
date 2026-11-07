@@ -118,20 +118,18 @@ function createPromptsClient(require) {
 .dsh-cp-action:hover { color: var(--dsw-alias-label-primary); }
 .dsh-cp-action.primary { color: #fff; background: #3a83f7; border-color: transparent; }
 .dsh-cp-action.primary:hover { background: #4f8ef9; }
-/* 官方选区动作面板（message-quotes 的 text-interaction 槽）上的自有按钮：
-   完全官方样式（.U4oBDW_action 同款声明，老宿主无官方样式时回落）。 */
-.dsh-si-quote-action {
-  background: var(--dsw-alias-button-floating-fill, rgba(116, 126, 148, .24));
-  --dsw-elevation-stroke-color: var(--dsw-alias-border-l3, rgba(255, 255, 255, .1));
-  box-shadow: var(--dsw-elevation-panel, 0 0 0 .5px var(--dsw-elevation-stroke-color), 0 2px 6px rgba(0, 0, 0, .12));
-  color: var(--dsw-alias-label-primary);
-  font: var(--dsw-font-xs-13, 13px/18px inherit);
-  cursor: pointer;
-  border: none;
-  border-radius: 999px;
-  padding: 5px 10px;
+/* 四选项横条（0.8.x 形态，用户拍板恢复）：深色圆角条 + 背景模糊 */
+.dsh-cp-selmenu { display: flex; flex-direction: row; align-items: center; gap: 2px; padding: 3px; border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-specific-menu, rgba(67, 69, 74, 0.85));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-elevation-stroke-color), 0 3px 8px 0 rgba(0, 0, 0, 0.1));
 }
-.dsh-si-quote-action:focus-visible, .dsh-si-quote-action:hover { background: var(--dsw-alias-button-floating-hover, rgba(116, 126, 148, .36)); }
+.dsh-cp-selitem { border: none; background: transparent; text-align: left; padding: 5px 10px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.92)); border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; white-space: nowrap; }
+.dsh-cp-selitem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.07)); }
+/* 官方浮动「引用文本」pill 由横条里的同名功能取代（同一 insertQuote API），隐藏避免双浮层 */
+[class*="U4oBDW_action"] { display: none !important; }
 .dsh-cp-toast { padding: 5px 12px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary, #fff);
   background: rgba(50, 50, 54, 0.95); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
 /* ---- 划选引用 chip：Trae comment-mention 规格（ai-modules-chat/index.css）----
@@ -579,89 +577,127 @@ function createPromptsClient(require) {
     // 评论编辑器在 React 侧保存后要提示，复用这个文档级 toast。
     window.__dshSuperinputToast = toast
 
-    /* 「添加评论」pill：官方 message-quotes 的选区分发是首个即胜（quote 先
-     * 注册永远赢），interaction 挂不进官方面板——改为独立 pill，样式复用官方
-     * .U4oBDW_action 类，出现时贴到官方「引用文本」pill 右侧拼成一条工具带；
-     * 官方 pill 不在（老宿主）就退回选区上方居中。 */
-    const pill = document.createElement('button')
-    pill.type = 'button'
-    pill.className = 'U4oBDW_action dsh-si-quote-action'
-    pill.textContent = '添加评论'
-    pill.style.cssText += 'position:fixed;z-index:1290;display:none;white-space:nowrap;'
-    document.body.appendChild(pill) // 挂进 DOM——游离节点样式再对也不会显示（0.11.1 真机教训）
-    let pillSweep = 0
-    const placePill = (rect) => {
-      const vw = window.innerWidth
-      const vh = window.innerHeight
-      // 官方 pill 定位优先（同锚点即成一条工具带）；找不到就落在选区末端上方。
-      const official = document.querySelector('[class*="U4oBDW_action"]')
-      let left = null
-      let top = null
-      if (official?.isConnected && official.getClientRects().length > 0) {
-        const or = official.getBoundingClientRect()
-        left = or.right + 8
-        top = or.top
-      } else {
-        left = Math.max(8, Math.min(rect.right - 20, vw - 120))
-        top = rect.top - 40
-      }
-      // 桌面壳 fixed 包含块可能偏移（0×0 包含块问题）：放好后按实测偏差校正。
-      pill.style.visibility = 'hidden'
-      pill.style.left = `${Math.max(8, Math.min(left, vw - 8))}px`
-      pill.style.top = `${Math.max(8, Math.min(top, vh - 8))}px`
-      const actual = pill.getBoundingClientRect()
-      const dx = actual.left - parseFloat(pill.style.left)
-      const dy = actual.top - parseFloat(pill.style.top)
-      if (Math.abs(dx) > 1) pill.style.left = `${parseFloat(pill.style.left) - dx}px`
-      if (Math.abs(dy) > 1) pill.style.top = `${parseFloat(pill.style.top) - dy}px`
-      pill.style.visibility = 'visible'
-      pill.style.display = 'block'
-    }
-    const hidePill = () => {
-      if (pillSweep) { cancelAnimationFrame(pillSweep); pillSweep = 0 }
-      pill.style.display = 'none'
-    }
-    const selectionSnapshot = () => {
-      const selection = window.getSelection?.()
-      const text = String(selection ?? '').trim()
-      if (!text || !selection.rangeCount) return null
-      const node = selection.anchorNode
-      const el = node instanceof Element ? node : node?.parentElement
-      if (!el?.closest?.('[data-chat-flow], [data-slot="conversation.chat.flow"]')) return null
-      if (el.closest?.('[contenteditable="true"], textarea, input, [data-dsh-superinput-portal]')) return null
-      const range = selection.getRangeAt(0)
-      const rect = range.getBoundingClientRect()
-      if (!rect || (rect.width === 0 && rect.height === 0)) return null
-      return { text: text.slice(0, CONTEXT_TEXT_MAX), anchorEl: el, rect }
-    }
-    // 官方 pill 由宿主交互服务定位，出现的时机与顺序不可控——选区存在期间
-    // 每帧扫一次：官方 pill 就位则吸附其右侧，两秒后仍没有就用兜底位置。
-    const sweepPill = () => {
-      const snap = selectionSnapshot()
-      if (!snap) { hidePill(); return }
-      placePill(snap.rect)
-      if (document.querySelector('[class*="U4oBDW_action"]')) return
-      if (Date.now() - sweepStartedAt < 2000) pillSweep = requestAnimationFrame(sweepPill)
-    }
-    let sweepStartedAt = 0
+    /* 四选项横条（用户拍板恢复 0.8.x 形态）：复制 / 引用文本（官方
+     * insertQuote 机制）/ 添加评论（Trae 评论卡 → chip）/ 存为模板。
+     * 官方自己的浮动「引用文本」pill 用 CSS 隐藏——横条里的「引用文本」
+     * 调同一个官方 API，避免双浮层。 */
+    let showTimer = 0
     document.addEventListener('selectionchange', () => {
       try {
-        if (pillSweep) { cancelAnimationFrame(pillSweep); pillSweep = 0 }
-        const snap = selectionSnapshot()
-        if (!snap) { hidePill(); return }
-        sweepStartedAt = Date.now()
-        pillSweep = requestAnimationFrame(sweepPill)
+        if (showTimer) { clearTimeout(showTimer); showTimer = 0 }
+        const selection = window.getSelection?.()
+        const text = String(selection ?? '').trim()
+        if (!text || !selection.rangeCount) { hide(); return }
+        showTimer = setTimeout(() => {
+          try {
+            const sel = window.getSelection?.()
+            const current = String(sel ?? '').trim()
+            if (!current || !sel.rangeCount) { hide(); return }
+            const node = sel.anchorNode
+            const el = node instanceof Element ? node : node?.parentElement
+            // 只收对话正文：跳过输入区、我们自己的弹层，以及侧栏/设置等非对话区域
+            if (!el || el.closest('[data-dsh-superinput-portal]') || el.closest('[contenteditable="true"], textarea, input')) { hide(); return }
+            if (!el.closest('[data-chat-flow], [data-slot="conversation.chat.flow"]')) { hide(); return }
+            const rect = sel.getRangeAt(0).getBoundingClientRect()
+            if (!rect || (rect.width === 0 && rect.height === 0)) { hide(); return }
+            const container = ensureHost()
+            // 横排四项 ≈320px：左缘对齐选区，右侧防溢出
+            container.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - 330))}px`
+            container.style.top = `${Math.max(8, rect.top - 44)}px`
+            container.style.transform = ''
+            container.style.display = 'block'
+            const menu = document.createElement('div')
+            menu.className = 'dsh-cp-selmenu'
+            // 阻止默认聚焦/清选区：否则 mousedown 触发 selectionchange，菜单会在 click 前被隐藏
+            menu.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault() })
+            const mkItem = (label, action) => {
+              const b = document.createElement('button')
+              b.className = 'dsh-cp-selitem'
+              b.textContent = label
+              b.addEventListener('click', () => { void action(current, el, rect) })
+              return b
+            }
+            menu.append(
+              mkItem('复制', copySel),
+              mkItem('引用文本', quoteToComposer),
+              mkItem('添加评论', (text2) => openComment(text2, el, rect)),
+              mkItem('存为模板', save))
+            container.replaceChildren(menu)
+          } catch { /* ignore */ }
+        }, 250)
       } catch { /* ignore */ }
     })
-    window.addEventListener('scroll', hidePill, true)
-    pill.addEventListener('mousedown', (event) => event.preventDefault()) // 保住选区（官方同款）
-    pill.addEventListener('click', () => {
-      const snap = selectionSnapshot()
-      if (!snap) { hidePill(); return }
-      hidePill()
-      window.getSelection()?.removeAllRanges()
-      window.__dshSuperinputCommentContext?.(snap.text, snap.anchorEl, snap.rect)
+    document.addEventListener('mousedown', (e) => {
+      if (host?.style.display === 'block' && !e.target.closest?.('[data-dsh-superinput-portal="selection"]')) hide()
+    }, true)
+    window.addEventListener('scroll', hide, true)
+    document.addEventListener('selectionchange', () => {
+      if (!String(window.getSelection?.() ?? '').trim()) hide()
     })
+
+    const copySel = async (text) => {
+      hide()
+      if (!navigator.clipboard?.writeText) { toast('当前环境不支持复制'); return }
+      try {
+        await navigator.clipboard.writeText(text)
+        toast('已复制')
+      } catch {
+        toast('复制失败')
+      }
+    }
+
+    /** 官方「引用文本」同款：inputActions.insertQuote 插 Markdown blockquote。
+     * plain 模式限制下返回 false 时，退回草稿桥手写 `> ` 前缀（发送后官方
+     * quoteRule 一样渲染成引用样式）。 */
+    const quoteToComposer = (text) => {
+      hide()
+      const insert = window.__dshSuperinputInsertQuote
+      if (typeof insert === 'function' && insert(text) === true) { toast('已引用到输入框'); return }
+      try {
+        const set = window.__dshSuperinputSetDraft
+        if (!set) { toast('输入框桥未就绪，刷新后重试'); return }
+        const block = text.split('\n').map((line) => `> ${line}`).join('\n')
+        const current = String(window.__dshSuperinputDraft?.() ?? '')
+        set(current ? `${current}\n${block}` : block)
+        toast('已引用到输入框')
+      } catch {
+        toast('引用失败')
+      }
+    }
+
+    /** Trae 的「添加评论」：在选区旁弹评论卡，保存后才插 chip（带评论）。
+     * rect 是选区矩形，React 侧用它把卡片锚在选区附近。 */
+    const openComment = (text, anchorEl, rect) => {
+      hide()
+      const open = window.__dshSuperinputCommentContext
+      if (typeof open !== 'function') { toast('评论编辑器未就绪，刷新后重试'); return }
+      let status = 'failed'
+      try {
+        status = open(text, anchorEl, {
+          left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+          width: rect.width, height: rect.height,
+        })
+      } catch { status = 'failed' }
+      if (status === 'full') toast(`最多添加 ${CONTEXT_MAX} 段对话内容`)
+      else if (status === 'empty') toast('选段为空')
+      else if (status === 'failed') toast('打开评论编辑器失败')
+    }
+
+    const save = async (text) => {
+      const title = text.replace(/\s+/g, ' ').trim().slice(0, 40)
+      hide()
+      try {
+        const res = await fetch('/api/dsh-superinput/prompts/save', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title, body: text }),
+        })
+        const data = res.ok ? await res.json() : null
+        toast(data?.ok ? '已存为模板' : '保存失败')
+      } catch {
+        toast('保存失败')
+      }
+    }
 
     /* Trae dragDropMention 等价：把对话里划选的文字拖进输入框，落成引用 chip。
      * dragstart 时对选区打自定义 dataTransfer 标记 + stash 文本；dragover 放行
@@ -1514,7 +1550,7 @@ function createPromptsClient(require) {
       }), document.body) : null)
   }
 
-  /** 草稿桥：划选「添加到对话」、模板插入、/ 命令插入共用。
+  /** 草稿桥：划选「添加评论」、模板插入、/ 命令插入、横条「引用文本」共用。
    * 挂 conversation.input.dock——该槽位会注入 useInput / inputActions；
    * composer.dock 不注入这些 props。片段模块移除时桥被一并删掉，这里补回。 */
   function PromptsDraftBridge({ useInput, inputActions }) {
@@ -1525,6 +1561,10 @@ function createPromptsClient(require) {
         window.__dshSuperinputSetDraft = (value) => {
           try { inputActions.setDraft(value) } catch { /* ignore */ }
         }
+      }
+      // 官方「引用文本」同款 API（0.2.2-rc.1 起可用）：plain 模式下插 blockquote
+      window.__dshSuperinputInsertQuote = (text) => {
+        try { return typeof inputActions?.insertQuote === 'function' && inputActions.insertQuote(text) === true } catch { return false }
       }
     }, [draft, inputActions])
     return null
