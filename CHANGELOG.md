@@ -2,6 +2,20 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.1] - 2026-11-07
+
+### 拖拽引用（Trae dragDropMention 等价）——最后一块对齐项
+
+- 对话里划选的文字现在可以**直接拖进输入框**：dragstart 给选区打
+  `application/x-dsh-selection` 标记并暂存文本；dragover 放行 composer；
+  drop 拦截宿主的纯文本插入（window capture preventDefault +
+  stopPropagation），尽力把光标定位到落点（caretRangeFromPoint），走
+  `__dshSuperinputDropContext` 插 chip。
+- 拖放只插 chip 不弹评论卡（Trae 拖拽即引用、无评论提示——要评论走划选
+  菜单「评论到对话」）；去重 / 8 条上限 / 提示 toast 与划选路径一致。
+- 至此与 Trae 的行为差异只剩实现说明项（dsh chip 走官方 reference 通道
+  序列化送模，Trae 是 Lexical 原生节点——用户体验已对齐）。
+
 ## [0.9.0] - 2026-11-04
 
 ### 划选引用改为 Trae 同款「输入框内联 chip」

@@ -694,6 +694,65 @@ function createPromptsClient(require) {
     document.addEventListener('selectionchange', () => {
       if (!String(window.getSelection?.() ?? '').trim()) hide()
     })
+
+    /* Trae dragDropMention 等价：把对话里划选的文字拖进输入框，落成引用 chip。
+     * dragstart 时对选区打自定义 dataTransfer 标记 + stash 文本；dragover 放行
+     * composer；drop 拦截宿主的纯文本插入，走 __dshSuperinputDropContext 插 chip。 */
+    let dragSelection = null // { text, anchorEl }
+    document.addEventListener('dragstart', (event) => {
+      try {
+        const selection = window.getSelection?.()
+        const text = String(selection ?? '').trim()
+        const node = selection?.anchorNode
+        const el = node instanceof Element ? node : node?.parentElement
+        if (!text || !el?.closest?.('[data-chat-flow], [data-slot="conversation.chat.flow"]')
+          || el.closest?.('[contenteditable="true"], textarea, input')) { dragSelection = null; return }
+        dragSelection = { text: text.slice(0, CONTEXT_TEXT_MAX), anchorEl: el }
+        try { event.dataTransfer?.setData('application/x-dsh-selection', '1') } catch { /* 标记失败只影响识别 */ }
+      } catch { dragSelection = null }
+    }, true)
+    document.addEventListener('dragover', (event) => {
+      try {
+        if (!dragSelection) return
+        const target = event.target
+        if (!(target instanceof Element) || !target.closest?.('[contenteditable="true"]')) return
+        event.preventDefault()
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+      } catch { /* ignore */ }
+    }, true)
+    document.addEventListener('drop', (event) => {
+      try {
+        if (!dragSelection) return
+        const target = event.target
+        if (!(target instanceof Element) || !target.closest?.('[contenteditable="true"]')) return
+        event.preventDefault()
+        event.stopPropagation()
+        const { text, anchorEl } = dragSelection
+        dragSelection = null
+        hide()
+        // 尽力把光标挪到落点：宿主 captureInsertion 读到哪就是哪。
+        try {
+          const range = typeof document.caretRangeFromPoint === 'function'
+            ? document.caretRangeFromPoint(event.clientX, event.clientY)
+            : null
+          if (range) {
+            window.getSelection()?.removeAllRanges()
+            window.getSelection()?.addRange(range)
+          }
+        } catch { /* 定位失败就落原 caret */ }
+        const insert = window.__dshSuperinputDropContext ?? window.__dshSuperinputAddContext
+        if (typeof insert === 'function') {
+          const status = insert(text, anchorEl)
+          const toast = window.__dshSuperinputToast
+          if (typeof toast === 'function') {
+            if (status === 'added') toast('已添加到对话')
+            else if (status === 'dup') toast('该选段已在列表中')
+            else if (status === 'full') toast(`最多添加 ${CONTEXT_MAX} 段对话内容`)
+          }
+        }
+      } catch { /* ignore */ }
+    }, true)
+    document.addEventListener('dragend', () => { dragSelection = null }, true)
   }
 
   function PromptsPanel({ anchor, onClose, onSyncSlash }) {
@@ -1335,9 +1394,13 @@ function createPromptsClient(require) {
       }
       window.__dshSuperinputAddContext = add
       window.__dshSuperinputCommentContext = openComment
+      // Trae dragDropMention 同义：拖放进来的引用只插 chip，不弹评论卡
+      //（拖拽是快速引用手势；要评论走划选菜单的「评论到对话」）。
+      window.__dshSuperinputDropContext = (text, anchorEl) => insertSelection(text, anchorEl, undefined)
       return () => {
         if (window.__dshSuperinputAddContext === add) delete window.__dshSuperinputAddContext
         if (window.__dshSuperinputCommentContext === openComment) delete window.__dshSuperinputCommentContext
+        if (window.__dshSuperinputDropContext === insertSelection) delete window.__dshSuperinputDropContext
       }
     }, [sessionId])
 

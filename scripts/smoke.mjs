@@ -130,6 +130,8 @@ try {
   assert(clientSource.includes('conversation.user.text.node'), 'client: sent-message selection chip renderer registered')
   assert(clientSource.includes('__dshSuperinputCommentContext'), 'client: selection comment card entry present')
   assert(clientSource.includes('dsh-si-comment-editor'), 'client: anchored comment editor present (Trae previewCommentCard)')
+  assert(clientSource.includes('__dshSuperinputDropContext'), 'client: drag-drop insert entry present (Trae dragDropMention)')
+  assert(clientSource.includes('application/x-dsh-selection'), 'client: drag payload marker present')
 
   console.log('SMOKE ALL PASS')
 } catch (error) {
